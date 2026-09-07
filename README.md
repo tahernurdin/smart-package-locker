@@ -14,7 +14,7 @@ Built with NestJS + MySQL in a layered/clean architecture. See
 |---|---|---|
 | 1 | Create lockers, list with availability, store package (smallest-fit + pickup code) | ✅ Done |
 | 2 | Customer retrieval (locker id + pickup code), locker freed on pickup | ✅ Done |
-| 3 | Tiered extended-storage fees | ⏳ Planned |
+| 3 | Tiered extended-storage fees, charged & snapshotted on retrieval | ✅ Done |
 | 4 | Concurrency hardening (`FOR UPDATE SKIP LOCKED` + retry) | ⏳ Planned |
 
 The one-active-package-per-locker invariant is already enforced at the database
@@ -82,6 +82,7 @@ curl -sXPOST localhost:3000/packages/retrieve -H "authorization: Bearer $CUSTOME
   -d "{\"lockerId\":$(jq .lockerId <<<"$STORED"),\"pickupCode\":$(jq .pickupCode <<<"$STORED")}"
 # {"packageId":"…","lockerCode":"A-SMALL","retrievedAt":"…",
 #  "storageFee":{"amountMinor":0,"currency":"AUD"},"opened":true}
+# amountMinor is 0 here (picked up same day); see "Storage fees" below for the tiers.
 # — the locker is now FREE again.
 ```
 
@@ -114,6 +115,28 @@ comes back deterministically ordered by size then code — the natural "here's t
 `limit` / `cursor` / `sort` can be added later without changing callers if a deployment ever needs
 them.
 
+## Storage fees
+
+A package is charged per **day** it occupies a locker, where a day is a 24h window from `stored_at`
+and every day *started* is billed (`ceil`). So retrieving within 24h is one day; at 24h + 1ms it's
+two.
+
+The rate is tiered per size (`storage_rate` table, half-open `[from_day, to_day)` bands). The seed:
+
+| size | day 0 | days 1–2 | days 3–5 | day 6+ |
+|---|---|---|---|---|
+| SMALL | free | 600 | 800 | 1000 |
+| MEDIUM | free | 900 | 1200 | 1500 |
+| LARGE | free | 1400 | 1800 | 2200 |
+
+(minor units — cents — in the configured `CURRENCY`). Example: a SMALL package out for 7 days costs
+`0 + 600·2 + 800·3 + 1000 = 4600`.
+
+The fee is computed at retrieval, returned in the pickup confirmation
+(`storageFee: { amountMinor, currency }`), and **snapshotted** into `package.storage_fee_minor` —
+a later rate change never rewrites a past charge. The rate *version* applied is the one in effect
+when the package was stored (`effective_from <= stored_at`).
+
 ## Local development (without Docker)
 
 ```bash
@@ -129,7 +152,7 @@ npm run start:dev
 npm run test                  # unit tests (no DB)
 npm run lint
 docker compose up -d mysql    # e2e needs a MySQL
-npm run test:e2e              # includes the full Level 1 + Level 2 flows
+npm run test:e2e              # full Level 1–3 flows (Level 3 fakes the clock to age a package)
 ```
 
 Run one test file or case:

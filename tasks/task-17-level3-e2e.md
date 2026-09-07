@@ -1,6 +1,6 @@
 # Task 17 — Wire the tiered policy + Level 3 end-to-end + docs
 
-**Level:** 3 · **Depends on:** 16 · **Status:** Not started
+**Level:** 3 · **Depends on:** 16 · **Status:** Done
 
 ## Goal
 

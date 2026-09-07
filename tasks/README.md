@@ -3,7 +3,7 @@
 - **Level 1 — Basic locker and package storage** (tasks 01–08) — done
 - **Level 2 — Package retrieval and locker management** (tasks 09–12) — done
 - **Refactors** (tasks 13–14) — done
-- **Level 3 — Extended storage charges** (tasks 15–17)
+- **Level 3 — Extended storage charges** (tasks 15–17) — done
 
 See `../docs/implementation-plan.md` for the overall design and decisions.
 
@@ -79,7 +79,7 @@ So L3 is: implement the real tiered calculation behind the existing seam and swa
 |---|---|---|---|
 | 15 | [Storage-rate model + repository](task-15-storage-rate-repository.md) | 12 | ✅ Done |
 | 16 | [Tiered storage-fee calculator + policy](task-16-tiered-storage-fee-policy.md) | 15 | ✅ Done |
-| 17 | [Wire the tiered policy + Level 3 e2e + docs](task-17-level3-e2e.md) | 16 | Not started |
+| 17 | [Wire the tiered policy + Level 3 e2e + docs](task-17-level3-e2e.md) | 16 | ✅ Done |
 
 ## Conventions (all tasks)
 

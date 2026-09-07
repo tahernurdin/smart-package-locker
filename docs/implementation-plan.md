@@ -82,14 +82,16 @@ rewrite a past charge.
 
 ## Levels mapping
 
-- **L1** — create lockers, list with status, store package (smallest-fit allocation, pickup code,
-  locker id returned), "no locker available" message.
-- **L2** — retrieve by locker id + pickup code; locker "opens" (returned in response); package
-  marked retrieved; locker free again; invalid scenarios handled.
-- **L3** — `stored_at` recorded; tiered fee computed at retrieval and returned with the
-  confirmation; snapshotted.
-- **L4** — concurrency: generated-column unique index + `FOR UPDATE SKIP LOCKED` + bounded retry;
-  covered by a concurrency e2e test.
+- **L1 (done, tasks 01–08)** — create lockers, list with status, store package (smallest-fit
+  allocation, pickup code, locker id returned), "no locker available" message.
+- **L2 (done, tasks 09–12)** — retrieve by locker id + pickup code; locker "opens" (returned in
+  response); package marked retrieved; locker free again; invalid scenarios handled;
+  `StorageFeePolicy` seam introduced (zero impl).
+- **L3 (done, tasks 15–17)** — `StorageRateBand` + repo (rate version chosen by `stored_at`); pure
+  `calculateStorageFeeMinor`; `TieredStorageFeePolicy` swapped in behind the seam; tiered fee
+  returned in the confirmation and snapshotted; a later rate change never rewrites it.
+- **L4** — concurrency: generated-column unique index (already in place) + `FOR UPDATE SKIP LOCKED`
+  + bounded retry; covered by a concurrency e2e test.
 
 ## Task breakdown
 
