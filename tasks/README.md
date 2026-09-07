@@ -4,7 +4,7 @@
 - **Level 2 — Package retrieval and locker management** (tasks 09–12) — done
 - **Refactors** (tasks 13–14) — done
 - **Level 3 — Extended storage charges** (tasks 15–17) — done
-- **Package lifecycle split + Level 4 — concurrent stores** (tasks 18–19)
+- **Package lifecycle split + Level 4 — concurrent stores** (tasks 18–20)
 
 See `../docs/implementation-plan.md` for the overall design and decisions.
 
@@ -84,18 +84,21 @@ So L3 is: implement the real tiered calculation behind the existing seam and swa
 
 ## Package lifecycle split + Level 4: Concurrent Stores
 
-A package is registered upstream (order / carrier feed) and *then* dropped by an agent, so the
-model splits: `package` (parcel — customer, size, tracking ref, `REGISTERED → STORED → RETRIEVED`)
-and `locker_assignment` (the storage episode — locker, `stored_at`, pickup code, fee). This rewrites
-the store path, so **Level 4 concurrency handling is built in**: allocate + insert the assignment in
-one transaction with `FOR UPDATE … SKIP LOCKED` (agents fan out to different lockers) + a bounded
-retry; `uq_one_active_assignment_per_locker` stays the correctness backstop. Level 4's contention
-requirements are proven by `test/level4.e2e-spec.ts` in task 19.
+A package is registered upstream (order / carrier feed) against an already-known customer, and
+*then* dropped by an agent. So: a customer is created via `POST /customers`; the model splits into
+`package` (parcel — `customer_id`, size, tracking ref, `REGISTERED → STORED → RETRIEVED`) and
+`locker_assignment` (the storage episode — locker, `stored_at`, pickup code, fee).
+
+The store-path rewrite builds in **Level 4**: allocate + insert the assignment in one transaction
+with `FOR UPDATE … SKIP LOCKED` (agents fan out to different lockers) + a bounded retry;
+`uq_one_active_assignment_per_locker` stays the correctness backstop. Level 4's contention
+requirements are proven by `test/level4.e2e-spec.ts` in task 20.
 
 | # | Task | Depends on | Status |
 |---|---|---|---|
-| 18 | [Split `package` into `package` + `locker_assignment`](task-18-package-locker-assignment-split.md) | 17 | Not started |
-| 19 | [Lifecycle + Level 4 contention: e2e & docs](task-19-lifecycle-and-contention-e2e.md) | 18 | Not started |
+| 18 | [`POST /customers` endpoint + `CustomerRepository.findById`](task-18-customers-endpoint.md) | 17 | Not started |
+| 19 | [Split `package` into `package` + `locker_assignment`](task-19-package-locker-assignment-split.md) | 18 | Not started |
+| 20 | [Lifecycle + Level 4 contention: e2e & docs](task-20-lifecycle-and-contention-e2e.md) | 19 | Not started |
 
 ## Conventions (all tasks)
 

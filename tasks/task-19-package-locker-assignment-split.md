@@ -1,6 +1,6 @@
-# Task 18 — Split `package` into `package` + `locker_assignment`
+# Task 19 — Split `package` into `package` + `locker_assignment`
 
-**Level:** refactor (absorbs Level 4) · **Depends on:** 17 · **Status:** Not started
+**Level:** refactor (absorbs Level 4) · **Depends on:** 18 · **Status:** Not started
 
 ## Why
 
@@ -107,9 +107,12 @@ One aggregate: `Package` is the root, `LockerAssignment` a child entity it owns.
 
 ## Application + interface (`src/packages/`)
 
-- `register-package.service.ts` — `RegisterPackageService.register({ size, customer, trackingRef })`:
-  `LockerSize.of`, `FindOrCreateCustomerService.findOrCreate` (moved here from store),
-  `Package.register`, `packages.save`. Returns `{ packageId, status: 'REGISTERED' }`.
+- `register-package.service.ts` — `RegisterPackageService.register({ size, customerId, trackingRef })`:
+  `LockerSize.of`; `CustomerRepository.findById(customerId)` ⇒ `CustomerNotFoundError` (404) if
+  absent (customers are created via `POST /customers`, task 18 — **no inline customer, no
+  find-or-create here**); `Package.register`; `packages.save`. Returns
+  `{ packageId, status: 'REGISTERED' }`. `PackagesModule` imports `CustomersModule` for the
+  `CUSTOMER_REPOSITORY` token.
 - `store-package.service.ts` — `StorePackageService.store({ packageId, agentId, stationId? })`:
   `packages.findById` ⇒ `PackageNotFoundError`; bounded retry loop (`MAX_ATTEMPTS = 3`): generate
   pickup code, `pkg.storeInLocker(...)` (in-memory guard), `reserveLockerAndStore(...)`; retry on
@@ -121,11 +124,14 @@ One aggregate: `Package` is the root, `LockerAssignment` a child entity it owns.
   `pkg.retrieve({ now, storageFeeMinor: fee })`; `packages.saveRetrieval(retrieved)`. Response shape
   unchanged (`packageId, lockerId, lockerCode, retrievedAt, storageFee, opened`).
 - `packages.controller.ts`:
-  - `POST /packages` `@Auth(AGENT)` → register `{ size, customer{name,email?,phone?}, trackingRef? }`
+  - `POST /packages` `@Auth(AGENT)` → register `{ size, customerId (uuid), trackingRef? }`
     → 201 `{ packageId, status }`.
   - `POST /packages/:id/store` `@Auth(AGENT)` → 200 `{ packageId, lockerId, lockerCode, pickupCode, status }`.
   - `POST /packages/retrieve` `@Auth(CUSTOMER)` → unchanged.
-- `packages.module.ts` — add `RegisterPackageService`; providers otherwise unchanged.
+- `packages.module.ts` — add `RegisterPackageService`, import `CustomersModule`; drop the direct
+  `FindOrCreateCustomerService` use in the store path.
+- `dto/register-package.dto.ts` — `size` (`@IsIn`), `customerId` (`@IsUUID`), `trackingRef?`
+  (string, ≤120). The old nested-customer DTO is removed.
 - `lockers` — `ListLockersService` / `MysqlLockerRepository.listWithOccupancy`: `LEFT JOIN
   locker_assignment la ON la.active_locker_id = l.id`; keep exposing `activePackageId`
   (= `la.package_id`).
@@ -134,7 +140,8 @@ One aggregate: `Package` is the root, `LockerAssignment` a child entity it owns.
 
 `package.entity.spec.ts` (register → store → retrieve transitions + guards),
 `locker-assignment.entity.spec.ts` (new), `store-package.service.spec.ts`,
-`register-package.service.spec.ts` (new), `retrieve-package.service.spec.ts`,
+`register-package.service.spec.ts` (new — validates `customerId` exists, throws
+`CustomerNotFoundError`), `retrieve-package.service.spec.ts`,
 `list-lockers.service.spec.ts` / `create-locker.service.spec.ts` fakes (drop
 `findAvailableSmallestFit`, add the new port methods).
 

@@ -7,6 +7,9 @@
 A minimal customer record so a stored package can be attached to the person picking it up. No
 controller in Level 1 — the customer is supplied inline when an agent stores a package.
 
+> Superseded by task 18: customers get a `POST /customers` endpoint and package registration
+> references an existing `customerId` instead of an inline customer.
+
 ## Scope
 
 **In**
