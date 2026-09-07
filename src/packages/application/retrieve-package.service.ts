@@ -14,16 +14,12 @@ import {
   PACKAGE_REPOSITORY,
   type PackageRepository,
 } from '../domain/package.repository.js';
+import type { RetrievePackageDto } from '../interface/dto/retrieve-package.dto.js';
 import { PickupCode } from '../domain/pickup-code.js';
 import {
   STORAGE_FEE_POLICY,
   type StorageFeePolicy,
 } from '../domain/storage-fee.policy.js';
-
-export interface RetrievePackageInput {
-  lockerId: string;
-  pickupCode: string;
-}
 
 export interface RetrievedPackage {
   packageId: string;
@@ -45,7 +41,7 @@ export class RetrievePackageService {
     @Inject(APP_CONFIG) private readonly config: AppConfiguration,
   ) {}
 
-  async retrieve(input: RetrievePackageInput): Promise<RetrievedPackage> {
+  async retrieve(input: RetrievePackageDto): Promise<RetrievedPackage> {
     const pickupCode = PickupCode.of(input.pickupCode).value;
 
     const locker = await this.lockers.findById(input.lockerId);

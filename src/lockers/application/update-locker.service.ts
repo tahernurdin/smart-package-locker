@@ -1,18 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock/clock.js';
 import { LockerCodeTakenError, LockerNotFoundError } from '../domain/errors.js';
-import type { LiveLockerStatus } from '../domain/locker-status.js';
 import {
   LOCKER_REPOSITORY,
   type LockerRepository,
 } from '../domain/locker.repository.js';
+import type { UpdateLockerDto } from '../interface/dto/update-locker.dto.js';
 import { toLockerViewAt, type LockerView } from './locker.view.js';
-
-export interface UpdateLockerInput {
-  id: string;
-  code?: string;
-  status?: LiveLockerStatus;
-}
 
 @Injectable()
 export class UpdateLockerService {
@@ -21,9 +15,9 @@ export class UpdateLockerService {
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
-  async updateLocker(input: UpdateLockerInput): Promise<LockerView> {
-    const found = await this.lockers.findByIdWithOccupancy(input.id);
-    if (!found) throw new LockerNotFoundError(input.id);
+  async updateLocker(id: string, input: UpdateLockerDto): Promise<LockerView> {
+    const found = await this.lockers.findByIdWithOccupancy(id);
+    if (!found) throw new LockerNotFoundError(id);
     const { locker, station, activePackageId } = found;
 
     if (input.code !== undefined) {

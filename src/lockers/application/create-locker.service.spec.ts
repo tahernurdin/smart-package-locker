@@ -7,6 +7,7 @@ import {
 import { LockerStation } from '../../stations/domain/locker-station.entity.js';
 import type { StationRepository } from '../../stations/domain/station.repository.js';
 import { LockerCodeTakenError } from '../domain/errors.js';
+import type { LockerSizeCode } from '../domain/locker-size.js';
 import type { Locker } from '../domain/locker.entity.js';
 import type {
   LockerOccupancy,
@@ -143,7 +144,10 @@ describe('CreateLockerService', () => {
     await expect(
       new CreateLockerService(repo, stations(), idGen(), clock).createLocker({
         code: 'C',
-        size: 'HUGE',
+        // The DTO's `@IsIn` narrows this to a LockerSizeCode at the HTTP edge,
+        // so the cast is what a non-HTTP caller (or a bypassed pipe) looks like.
+        // The domain guard is the one that actually has to hold.
+        size: 'HUGE' as LockerSizeCode,
         stationId: STATION_ID,
       }),
     ).rejects.toThrow(/Unknown locker size/);

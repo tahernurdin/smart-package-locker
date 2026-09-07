@@ -78,7 +78,7 @@ export class StationsController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateStationDto,
   ): Promise<StationView> {
-    return toView(await this.updateStation.updateStation({ id, ...dto }));
+    return toView(await this.updateStation.updateStation(id, dto));
   }
 
   /**

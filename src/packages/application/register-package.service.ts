@@ -5,23 +5,13 @@ import {
   ID_GENERATOR,
   type IdGenerator,
 } from '../../shared/id/id-generator.js';
+import type { RegisterPackageDto } from '../interface/dto/register-package.dto.js';
 import { Package } from '../domain/package.entity.js';
 import type { PackageStatus } from '../domain/package-status.js';
 import {
   PACKAGE_REPOSITORY,
   type PackageRepository,
 } from '../domain/package.repository.js';
-
-export interface RegisterPackageInput {
-  size: string;
-  /**
-   * Opaque reference to a customer owned by an upstream customer service. This
-   * system stores it and never resolves it — creating, updating and notifying
-   * customers (incl. delivering the pickup code) are out of scope per the brief.
-   */
-  customerId: string;
-  trackingRef?: string;
-}
 
 export interface RegisteredPackage {
   packageId: string;
@@ -36,7 +26,7 @@ export class RegisterPackageService {
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
-  async register(input: RegisterPackageInput): Promise<RegisteredPackage> {
+  async register(input: RegisterPackageDto): Promise<RegisteredPackage> {
     const size = LockerSize.of(input.size);
 
     const pkg = Package.register({

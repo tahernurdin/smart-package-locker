@@ -5,15 +5,11 @@ import {
   type IdGenerator,
 } from '../../shared/id/id-generator.js';
 import { LockerStation } from '../domain/locker-station.entity.js';
+import type { CreateStationDto } from '../interface/dto/create-station.dto.js';
 import {
   STATION_REPOSITORY,
   type StationRepository,
 } from '../domain/station.repository.js';
-
-export interface CreateStationInput {
-  name: string;
-  location?: string | null;
-}
 
 @Injectable()
 export class CreateStationService {
@@ -23,7 +19,7 @@ export class CreateStationService {
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
-  async createStation(input: CreateStationInput): Promise<LockerStation> {
+  async createStation(input: CreateStationDto): Promise<LockerStation> {
     const station = LockerStation.create({
       id: this.ids.next(),
       name: input.name,

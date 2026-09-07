@@ -54,7 +54,7 @@ export class LockersController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateLockerDto,
   ): Promise<LockerView> {
-    return this.updateLocker.updateLocker({ id, ...dto });
+    return this.updateLocker.updateLocker(id, dto);
   }
 
   /**

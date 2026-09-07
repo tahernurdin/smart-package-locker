@@ -41,7 +41,7 @@ describe('UpdateLockerService', () => {
   it('renames the locker and stamps updated_at from the clock', async () => {
     const { service, written } = build();
 
-    const view = await service.updateLocker({ id: 'l-1', code: 'A-99' });
+    const view = await service.updateLocker('l-1', { code: 'A-99' });
 
     expect(view.code).toBe('A-99');
     expect(written).toHaveLength(1);
@@ -52,8 +52,7 @@ describe('UpdateLockerService', () => {
   it('takes a locker out of service without touching its code', async () => {
     const { service, written } = build();
 
-    const view = await service.updateLocker({
-      id: 'l-1',
+    const view = await service.updateLocker('l-1', {
       status: 'OUT_OF_SERVICE',
     });
 
@@ -64,16 +63,16 @@ describe('UpdateLockerService', () => {
   it('rejects a code already used at the same station', async () => {
     const { service, written } = build({ taken: ['B-02'] });
 
-    await expect(
-      service.updateLocker({ id: 'l-1', code: 'B-02' }),
-    ).rejects.toThrow(LockerCodeTakenError);
+    await expect(service.updateLocker('l-1', { code: 'B-02' })).rejects.toThrow(
+      LockerCodeTakenError,
+    );
     expect(written).toHaveLength(0);
   });
 
   it('allows a no-op rename to the locker’s own code', async () => {
     const { service } = build({ taken: ['A-01'] });
 
-    const view = await service.updateLocker({ id: 'l-1', code: 'A-01' });
+    const view = await service.updateLocker('l-1', { code: 'A-01' });
 
     expect(view.code).toBe('A-01');
   });
@@ -81,9 +80,9 @@ describe('UpdateLockerService', () => {
   it('throws when the locker is unknown', async () => {
     const { service } = build({ locker: null });
 
-    await expect(
-      service.updateLocker({ id: 'nope', code: 'X' }),
-    ).rejects.toThrow(LockerNotFoundError);
+    await expect(service.updateLocker('nope', { code: 'X' })).rejects.toThrow(
+      LockerNotFoundError,
+    );
   });
 
   it('refuses to edit a decommissioned locker', async () => {
@@ -91,7 +90,7 @@ describe('UpdateLockerService', () => {
     const { service, written } = build({ locker: retired });
 
     await expect(
-      service.updateLocker({ id: 'l-1', status: 'IN_SERVICE' }),
+      service.updateLocker('l-1', { status: 'IN_SERVICE' }),
     ).rejects.toThrow(LockerDecommissionedError);
     expect(written).toHaveLength(0);
   });

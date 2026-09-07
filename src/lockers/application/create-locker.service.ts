@@ -21,13 +21,8 @@ import {
   LOCKER_REPOSITORY,
   type LockerRepository,
 } from '../domain/locker.repository.js';
+import type { CreateLockerDto } from '../interface/dto/create-locker.dto.js';
 import { toLockerViewAt, type LockerView } from './locker.view.js';
-
-export interface CreateLockerInput {
-  code: string;
-  size: string;
-  stationId: string;
-}
 
 @Injectable()
 export class CreateLockerService {
@@ -38,7 +33,7 @@ export class CreateLockerService {
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
-  async createLocker(input: CreateLockerInput): Promise<LockerView> {
+  async createLocker(input: CreateLockerDto): Promise<LockerView> {
     const { stationId } = input;
     const size = LockerSize.of(input.size);
     const code = input.code.trim();

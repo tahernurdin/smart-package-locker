@@ -240,4 +240,6 @@ tasks/          per-task specs (L1: 01–08, L2: 09–12, L3: 15–17, split + L
 ```
 
 Dependencies point inward: HTTP → application → domain; infrastructure implements domain ports and
-is bound to them in each feature module.
+is bound to them in each feature module. One deliberate exception: application services take the
+request DTO as their input type (`import type`, so nothing survives compilation) rather than
+restating every request shape as a second, identical interface — see [`CLAUDE.md`](CLAUDE.md).

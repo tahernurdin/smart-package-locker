@@ -33,7 +33,7 @@ describe('UpdateStationService', () => {
   it('renames the station and stamps updated_at from the clock', async () => {
     const { service, written } = build();
 
-    const station = await service.updateStation({ id: 's-1', name: 'North' });
+    const station = await service.updateStation('s-1', { name: 'North' });
 
     expect(station.name).toBe('North');
     expect(station.location).toBe('Level 2');
@@ -43,13 +43,13 @@ describe('UpdateStationService', () => {
 
   it('clears the location on an explicit null', async () => {
     const { service } = build();
-    const station = await service.updateStation({ id: 's-1', location: null });
+    const station = await service.updateStation('s-1', { location: null });
     expect(station.location).toBeNull();
   });
 
   it('leaves omitted fields alone', async () => {
     const { service } = build();
-    const station = await service.updateStation({ id: 's-1' });
+    const station = await service.updateStation('s-1', {});
     expect(station.name).toBe('Central');
     expect(station.location).toBe('Level 2');
   });
@@ -57,9 +57,9 @@ describe('UpdateStationService', () => {
   it('throws when the station is unknown', async () => {
     const { service } = build(null);
 
-    await expect(
-      service.updateStation({ id: 'nope', name: 'X' }),
-    ).rejects.toThrow(StationNotFoundError);
+    await expect(service.updateStation('nope', { name: 'X' })).rejects.toThrow(
+      StationNotFoundError,
+    );
   });
 
   it('refuses to edit a decommissioned station', async () => {
@@ -67,7 +67,7 @@ describe('UpdateStationService', () => {
     const { service, written } = build(retired);
 
     await expect(
-      service.updateStation({ id: 's-1', name: 'North' }),
+      service.updateStation('s-1', { name: 'North' }),
     ).rejects.toThrow(StationDecommissionedError);
     expect(written).toHaveLength(0);
   });

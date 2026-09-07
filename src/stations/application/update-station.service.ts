@@ -2,16 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { CLOCK, type Clock } from '../../shared/clock/clock.js';
 import { StationNotFoundError } from '../domain/errors.js';
 import type { LockerStation } from '../domain/locker-station.entity.js';
+import type { UpdateStationDto } from '../interface/dto/update-station.dto.js';
 import {
   STATION_REPOSITORY,
   type StationRepository,
 } from '../domain/station.repository.js';
-
-export interface UpdateStationInput {
-  id: string;
-  name?: string;
-  location?: string | null;
-}
 
 @Injectable()
 export class UpdateStationService {
@@ -20,9 +15,12 @@ export class UpdateStationService {
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
 
-  async updateStation(input: UpdateStationInput): Promise<LockerStation> {
-    const station = await this.stations.findById(input.id);
-    if (!station) throw new StationNotFoundError(input.id);
+  async updateStation(
+    id: string,
+    input: UpdateStationDto,
+  ): Promise<LockerStation> {
+    const station = await this.stations.findById(id);
+    if (!station) throw new StationNotFoundError(id);
 
     // Throws StationDecommissionedError if the station is retired.
     const updated = station.update({
