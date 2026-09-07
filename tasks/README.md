@@ -2,6 +2,8 @@
 
 - **Level 1 — Basic locker and package storage** (tasks 01–08) — done
 - **Level 2 — Package retrieval and locker management** (tasks 09–12) — done
+- **Refactors** (tasks 13–14) — done
+- **Level 3 — Extended storage charges** (tasks 15–17)
 
 See `../docs/implementation-plan.md` for the overall design and decisions.
 
@@ -56,6 +58,28 @@ policy seam introduced here), `FOR UPDATE SKIP LOCKED` allocation hardening (L4)
 |---|---|---|---|
 | 13 | [Drop the `locker_size` reference table](task-13-drop-locker-size-table.md) | 12 | ✅ Done |
 | 14 | [`GET /lockers`: station filter + station in response](task-14-list-lockers-station-filter.md) | 13 | ✅ Done |
+
+## Level 3: Extended Storage Charges
+
+Level 3 scope (from the brief):
+
+- Record when the package was placed in the locker (**already done** — `package.stored_at` since L1).
+- Calculate the storage charge from how long the package stayed: a tiered per-day rule (e.g. `X`/day
+  for the first days, `2X`, then `3X`), where a "day" is a 24h window from `stored_at`.
+- On retrieval, return the total charge with the pickup confirmation (**seam already there** —
+  `RetrievePackageService` calls `StorageFeePolicy` and returns `storageFee`; L2 bound a zero
+  policy).
+- Locker frees on retrieval (**already done** in L2).
+
+So L3 is: implement the real tiered calculation behind the existing seam and swap the binding.
+
+**Out of scope for Level 3**: `FOR UPDATE SKIP LOCKED` allocation hardening + bounded retry (L4).
+
+| # | Task | Depends on | Status |
+|---|---|---|---|
+| 15 | [Storage-rate model + repository](task-15-storage-rate-repository.md) | 12 | Not started |
+| 16 | [Tiered storage-fee calculator + policy](task-16-tiered-storage-fee-policy.md) | 15 | Not started |
+| 17 | [Wire the tiered policy + Level 3 e2e + docs](task-17-level3-e2e.md) | 16 | Not started |
 
 ## Conventions (all tasks)
 
