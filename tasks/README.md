@@ -24,7 +24,7 @@ See `../docs/implementation-plan.md` for the overall design and decisions.
 | 04 | [Auth — dummy JWT per role](task-04-auth.md) | 01, 03 | ✅ Done |
 | 05 | [Lockers context](task-05-lockers-context.md) | 02, 03, 04 | ✅ Done |
 | 06 | [Customers context](task-06-customers-context.md) | 02, 03 | ✅ Done |
-| 07 | [Store package](task-07-store-package.md) | 03, 04, 05, 06 | Not started |
+| 07 | [Store package](task-07-store-package.md) | 03, 04, 05, 06 | ✅ Done |
 | 08 | [Level 1 end-to-end + docs](task-08-level1-e2e.md) | 05, 07 | Not started |
 
 ## Conventions (all tasks)

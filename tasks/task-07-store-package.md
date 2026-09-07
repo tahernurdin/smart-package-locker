@@ -1,6 +1,6 @@
 # Task 07 — Store package
 
-**Level:** 1 · **Depends on:** 03, 04, 05, 06 · **Status:** Not started
+**Level:** 1 · **Depends on:** 03, 04, 05, 06 · **Status:** Done
 
 ## Goal
 

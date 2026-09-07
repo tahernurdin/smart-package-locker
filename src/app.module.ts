@@ -6,6 +6,7 @@ import { SharedKernelModule } from './shared/shared-kernel.module.js';
 import { CustomersModule } from './customers/customers.module.js';
 import { HealthModule } from './health/health.module.js';
 import { LockersModule } from './lockers/lockers.module.js';
+import { PackagesModule } from './packages/packages.module.js';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { LockersModule } from './lockers/lockers.module.js';
     HealthModule,
     LockersModule,
     CustomersModule,
+    PackagesModule,
   ],
 })
 export class AppModule {}
