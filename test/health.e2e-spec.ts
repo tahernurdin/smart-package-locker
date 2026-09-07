@@ -20,8 +20,21 @@ describe('Health (e2e)', () => {
     await app.close();
   });
 
-  it('GET /health returns ok', async () => {
-    const res = await request(app.getHttpServer()).get('/health').expect(200);
-    expect(res.body.status).toBe('ok');
+  it('GET /health/live returns ok without a db check', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/health/live')
+      .expect(200);
+    expect(res.body).toEqual({ status: 'ok' });
+  });
+
+  it('GET /health/ready reports the db up', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/health/ready')
+      .expect(200);
+    expect(res.body).toEqual({ status: 'ok', db: 'up' });
+  });
+
+  it('GET /health is not a route', async () => {
+    await request(app.getHttpServer()).get('/health').expect(404);
   });
 });

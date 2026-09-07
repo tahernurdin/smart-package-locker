@@ -31,10 +31,11 @@ Brings up MySQL 8.4 and the API on `http://localhost:3000`. Schema migrations ru
 boot. With `AUTH_DEV_TOKENS=true` (the default in the compose file), one JWT per role is printed in
 the API logs on startup.
 
-Health check:
+Health checks — liveness never touches MySQL, readiness answers `503` when it can't:
 
 ```bash
-curl localhost:3000/health          # {"status":"ok","db":"up"}
+curl localhost:3000/health/live     # {"status":"ok"}
+curl localhost:3000/health/ready    # {"status":"ok","db":"up"}  (503 {"status":"error","db":"down"})
 ```
 
 ## Getting a token
@@ -94,7 +95,8 @@ all three, so nothing leaks).
 
 | Method | Path | Role | Purpose |
 |---|---|---|---|
-| `GET` | `/health` | — | Liveness + DB check |
+| `GET` | `/health/live` | — | Liveness — process only, no DB |
+| `GET` | `/health/ready` | — | Readiness — `SELECT 1`, `503` when the DB is down |
 | `POST` | `/auth/dev-token` | — (dev only) | Mint a token for `{ role }` |
 | `POST` | `/lockers` | Operator | Create a locker `{ code, size, stationId? }` |
 | `GET` | `/lockers` | Operator | List lockers (`FREE`/`OCCUPIED` + station); optional `?stationId=<uuid>` |

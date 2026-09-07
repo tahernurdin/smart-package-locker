@@ -19,8 +19,11 @@
 # Health
 ###############################################################################
 
-### Liveness + DB check (public)
-GET {{baseUrl}}/health
+### Liveness — process only, never touches MySQL (public)
+GET {{baseUrl}}/health/live
+
+### Readiness — SELECT 1; 503 when the DB is unreachable (public)
+GET {{baseUrl}}/health/ready
 
 ###############################################################################
 # Auth — dev tokens (only when AUTH_DEV_TOKENS=true; 404 otherwise)

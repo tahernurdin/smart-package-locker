@@ -69,7 +69,8 @@ Application services inject repository **interfaces** bound via tokens
 | GET | `/lockers` | Operator | list: code, size, service status, `FREE`/`OCCUPIED`, active package summary |
 | POST | `/packages` | Agent | store `{ size, customer{name,email?,phone?}, trackingRef? }` → `{ packageId, lockerId, lockerCode, pickupCode }`; 409 `No suitable locker available` |
 | POST | `/packages/retrieve` | Customer | `{ lockerId, pickupCode }` → `{ packageId, retrievedAt, storageFee{amountMinor,currency} }`; 404/409 on invalid / already retrieved |
-| GET | `/health` | — | liveness + DB check |
+| GET | `/health/live` | — | liveness — process only, no DB |
+| GET | `/health/ready` | — | readiness — `SELECT 1`, 503 when the DB is down |
 
 Retrieval is authorized by possession (locker id + pickup code); the Customer role only gates the route.
 
@@ -97,7 +98,7 @@ rewrite a past charge.
 
 1. **Infra & tooling** — add deps (`mysql2`, `@nestjs/jwt`, `@nestjs/config`); typed config;
    `Dockerfile` (multi-stage) + `docker-compose.yml` (mysql 8.4 + api) + `.dockerignore` +
-   `.env.example`; remove starter hello-world; `GET /health`.
+   `.env.example`; remove starter hello-world; `GET /health/live` + `GET /health/ready`.
 2. **Schema + migrator** — `migrations/001_init.sql` (MySQL); runner + `db:migrate`; boot-time
    apply; seed sizes / rates / default station.
 3. **Shared kernel** — `Clock`, `IdGenerator`, `PickupCodeGenerator` + hasher; `DomainError` +
