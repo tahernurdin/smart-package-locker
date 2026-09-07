@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query } from '@nestjs/common';
 import { Auth } from '../../shared/auth/auth.decorator.js';
 import { Role } from '../../shared/auth/roles.js';
 import { CreateLockerService } from '../application/create-locker.service.js';
@@ -7,6 +7,7 @@ import {
   type LockerView,
 } from '../application/list-lockers.service.js';
 import { CreateLockerDto } from './dto/create-locker.dto.js';
+import { ListLockersQueryDto } from './dto/list-lockers-query.dto.js';
 
 interface CreatedLockerView {
   id: string;
@@ -36,7 +37,7 @@ export class LockersController {
   }
 
   @Get()
-  list(): Promise<LockerView[]> {
-    return this.listLockers.listLockers();
+  list(@Query() query: ListLockersQueryDto): Promise<LockerView[]> {
+    return this.listLockers.listLockers({ stationId: query.stationId });
   }
 }

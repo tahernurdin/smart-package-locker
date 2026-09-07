@@ -36,7 +36,11 @@ class FakeLockerRepository implements LockerRepository {
   }
 
   async listWithOccupancy(): Promise<LockerOccupancy[]> {
-    return this.saved.map((locker) => ({ locker, activePackageId: null }));
+    return this.saved.map((locker) => ({
+      locker,
+      activePackageId: null,
+      station: { id: locker.stationId, name: 'Test Station', location: null },
+    }));
   }
 
   async findAvailableSmallestFit(): Promise<Locker | null> {

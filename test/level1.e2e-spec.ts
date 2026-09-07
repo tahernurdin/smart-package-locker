@@ -4,6 +4,7 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module.js';
+import { DEFAULT_STATION_ID } from '../src/lockers/application/create-locker.service.js';
 import { loadConfiguration } from '../src/shared/config/configuration.js';
 import { runMigrations } from '../src/shared/database/migrator.js';
 import { MYSQL_POOL } from '../src/shared/database/mysql.pool.js';
@@ -87,6 +88,11 @@ describe('Level 1 (e2e)', () => {
       'FREE',
       'FREE',
     ]);
+    expect(listed.body[0]).toMatchObject({
+      stationId: DEFAULT_STATION_ID,
+      stationName: 'Default Station',
+      location: 'HQ',
+    });
 
     // SMALL package -> the SMALL locker
     const first = await storePackage(agent, 'SMALL', {
@@ -124,6 +130,28 @@ describe('Level 1 (e2e)', () => {
       phone: '222',
     }).expect(409);
     expect(full.body.code).toBe('no_suitable_locker');
+  });
+
+  it('filters the locker list by station', async () => {
+    const op = await token('OPERATOR');
+    await createLocker(op, 'F-1', 'SMALL').expect(201);
+
+    const atDefault = await http()
+      .get(`/lockers?stationId=${DEFAULT_STATION_ID}`)
+      .set('authorization', `Bearer ${op}`)
+      .expect(200);
+    expect(atDefault.body).toHaveLength(1);
+
+    const elsewhere = await http()
+      .get('/lockers?stationId=0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d')
+      .set('authorization', `Bearer ${op}`)
+      .expect(200);
+    expect(elsewhere.body).toEqual([]);
+
+    await http()
+      .get('/lockers?stationId=not-a-uuid')
+      .set('authorization', `Bearer ${op}`)
+      .expect(400);
   });
 
   it('enforces roles and authentication', async () => {

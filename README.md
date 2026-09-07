@@ -64,7 +64,7 @@ for s in SMALL MEDIUM LARGE; do
     -H 'content-type: application/json' -d "{\"code\":\"A-$s\",\"size\":\"$s\"}"
 done
 
-# Operator: list lockers with availability
+# Operator: list lockers with availability + station (optional ?stationId=<uuid>)
 curl -s localhost:3000/lockers -H "authorization: Bearer $OP"
 
 # Agent: store a package — assigned the smallest locker that fits
@@ -96,9 +96,23 @@ all three, so nothing leaks).
 | `GET` | `/health` | — | Liveness + DB check |
 | `POST` | `/auth/dev-token` | — (dev only) | Mint a token for `{ role }` |
 | `POST` | `/lockers` | Operator | Create a locker `{ code, size, stationId? }` |
-| `GET` | `/lockers` | Operator | List lockers with `FREE`/`OCCUPIED` |
+| `GET` | `/lockers` | Operator | List lockers (`FREE`/`OCCUPIED` + station); optional `?stationId=<uuid>` |
 | `POST` | `/packages` | Agent | Store `{ size, customer{name,email?,phone?}, trackingRef? }` |
 | `POST` | `/packages/retrieve` | Customer | Retrieve `{ lockerId, pickupCode }` — opens the locker, returns the fee |
+
+Each `GET /lockers` row:
+
+```json
+{ "id": "…", "code": "A-01", "size": "SMALL", "status": "IN_SERVICE",
+  "availability": "FREE", "activePackageId": null,
+  "stationId": "…", "stationName": "Default Station", "location": "HQ" }
+```
+
+**No pagination or sorting.** A locker bank is bounded and small (tens per station), and the list
+comes back deterministically ordered by size then code — the natural "here's the wall" view.
+`?stationId=` is the one filter that matters. The repository method takes an options object, so
+`limit` / `cursor` / `sort` can be added later without changing callers if a deployment ever needs
+them.
 
 ## Local development (without Docker)
 

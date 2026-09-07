@@ -6,6 +6,7 @@ import { LockerCodeTakenError } from '../domain/errors.js';
 import { Locker } from '../domain/locker.entity.js';
 import { LockerSize } from '../domain/locker-size.js';
 import type {
+  ListLockersFilter,
   LockerOccupancy,
   LockerRepository,
 } from '../domain/locker.repository.js';
@@ -67,18 +68,29 @@ export class MysqlLockerRepository implements LockerRepository {
     return rows.length > 0;
   }
 
-  async listWithOccupancy(): Promise<LockerOccupancy[]> {
+  async listWithOccupancy(
+    filter: ListLockersFilter = {},
+  ): Promise<LockerOccupancy[]> {
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `SELECT l.id, l.station_id, l.code, l.size_code, l.status,
               l.created_at, l.updated_at,
-              p.id AS active_package_id
+              p.id AS active_package_id,
+              st.name AS station_name, st.location AS station_location
        FROM locker l
+       JOIN locker_station st ON st.id = l.station_id
        LEFT JOIN package p ON p.active_locker_id = l.id
+       WHERE (:stationId IS NULL OR l.station_id = :stationId)
        ORDER BY ${sizeRank('l.size_code')} ASC, l.code ASC`,
+      { stationId: filter.stationId ?? null },
     );
     return rows.map((row) => ({
       locker: this.toLocker(row),
       activePackageId: (row.active_package_id as string | null) ?? null,
+      station: {
+        id: row.station_id as string,
+        name: row.station_name as string,
+        location: (row.station_location as string | null) ?? null,
+      },
     }));
   }
 

@@ -55,6 +55,7 @@ policy seam introduced here), `FOR UPDATE SKIP LOCKED` allocation hardening (L4)
 | # | Task | Depends on | Status |
 |---|---|---|---|
 | 13 | [Drop the `locker_size` reference table](task-13-drop-locker-size-table.md) | 12 | ✅ Done |
+| 14 | [`GET /lockers`: station filter + station in response](task-14-list-lockers-station-filter.md) | 13 | ✅ Done |
 
 ## Conventions (all tasks)
 

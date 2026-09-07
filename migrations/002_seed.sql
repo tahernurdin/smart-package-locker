@@ -3,7 +3,7 @@
 
 -- The single default station. Locker creation uses this when no station is given.
 INSERT IGNORE INTO locker_station (id, name, location, created_at) VALUES
-  ('00000000-0000-0000-0000-000000000001', 'Default Station', 'HQ',
+  ('00000000-0000-4000-8000-000000000000', 'Default Station', 'HQ',
    '2026-01-01 00:00:00.000000');
 
 -- Illustrative tiered rates: first day free, then escalating half-open bands per

@@ -1,6 +1,10 @@
 import { Locker } from '../domain/locker.entity.js';
 import { LockerSize } from '../domain/locker-size.js';
-import type { LockerRepository } from '../domain/locker.repository.js';
+import type {
+  ListLockersFilter,
+  LockerOccupancy,
+  LockerRepository,
+} from '../domain/locker.repository.js';
 import { ListLockersService } from './list-lockers.service.js';
 
 function locker(code: string, size: 'SMALL' | 'MEDIUM' | 'LARGE'): Locker {
@@ -13,12 +17,14 @@ function locker(code: string, size: 'SMALL' | 'MEDIUM' | 'LARGE'): Locker {
   });
 }
 
+const station = { id: 'station-1', name: 'HQ Bank', location: 'Lobby' };
+
 describe('ListLockersService', () => {
-  it('derives FREE / OCCUPIED from the active package', async () => {
+  it('derives FREE / OCCUPIED and flattens the station onto each row', async () => {
     const repo = {
-      listWithOccupancy: async () => [
-        { locker: locker('A-01', 'SMALL'), activePackageId: 'pkg-7' },
-        { locker: locker('B-01', 'LARGE'), activePackageId: null },
+      listWithOccupancy: async (): Promise<LockerOccupancy[]> => [
+        { locker: locker('A-01', 'SMALL'), activePackageId: 'pkg-7', station },
+        { locker: locker('B-01', 'LARGE'), activePackageId: null, station },
       ],
     } as unknown as LockerRepository;
 
@@ -32,6 +38,9 @@ describe('ListLockersService', () => {
         status: 'IN_SERVICE',
         availability: 'OCCUPIED',
         activePackageId: 'pkg-7',
+        stationId: 'station-1',
+        stationName: 'HQ Bank',
+        location: 'Lobby',
       },
       {
         id: 'id-B-01',
@@ -40,7 +49,24 @@ describe('ListLockersService', () => {
         status: 'IN_SERVICE',
         availability: 'FREE',
         activePackageId: null,
+        stationId: 'station-1',
+        stationName: 'HQ Bank',
+        location: 'Lobby',
       },
     ]);
+  });
+
+  it('passes the station filter through to the repository', async () => {
+    let received: ListLockersFilter | undefined;
+    const repo = {
+      listWithOccupancy: async (filter?: ListLockersFilter) => {
+        received = filter;
+        return [];
+      },
+    } as unknown as LockerRepository;
+
+    await new ListLockersService(repo).listLockers({ stationId: 'station-9' });
+
+    expect(received).toEqual({ stationId: 'station-9' });
   });
 });

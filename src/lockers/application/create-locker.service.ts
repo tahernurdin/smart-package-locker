@@ -9,8 +9,9 @@ import {
   type LockerRepository,
 } from '../domain/locker.repository.js';
 
-/** The single seeded station (migrations/002_seed.sql). */
-export const DEFAULT_STATION_ID = '00000000-0000-0000-0000-000000000001';
+/** The single seeded station (migrations/002_seed.sql). A valid v4 UUID so it
+ *  passes `@IsUUID()` when a client passes it explicitly. */
+export const DEFAULT_STATION_ID = '00000000-0000-4000-8000-000000000000';
 
 export interface CreateLockerInput {
   code: string;
