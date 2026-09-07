@@ -1,6 +1,6 @@
 # Task 12 — Level 2 end-to-end + docs
 
-**Level:** 2 · **Depends on:** 11 · **Status:** Not started
+**Level:** 2 · **Depends on:** 11 · **Status:** Done
 
 ## Goal
 

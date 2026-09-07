@@ -13,7 +13,7 @@ Built with NestJS + MySQL in a layered/clean architecture. See
 | Level | Scope | State |
 |---|---|---|
 | 1 | Create lockers, list with availability, store package (smallest-fit + pickup code) | ✅ Done |
-| 2 | Customer retrieval (locker id + pickup code) | ⏳ Planned |
+| 2 | Customer retrieval (locker id + pickup code), locker freed on pickup | ✅ Done |
 | 3 | Tiered extended-storage fees | ⏳ Planned |
 | 4 | Concurrency hardening (`FOR UPDATE SKIP LOCKED` + retry) | ⏳ Planned |
 
@@ -68,14 +68,26 @@ done
 curl -s localhost:3000/lockers -H "authorization: Bearer $OP"
 
 # Agent: store a package — assigned the smallest locker that fits
-curl -sXPOST localhost:3000/packages -H "authorization: Bearer $AGENT" \
+STORED=$(curl -sXPOST localhost:3000/packages -H "authorization: Bearer $AGENT" \
   -H 'content-type: application/json' \
-  -d '{"size":"SMALL","customer":{"name":"Jo","email":"jo@example.com"}}'
+  -d '{"size":"SMALL","customer":{"name":"Jo","email":"jo@example.com"}}')
+echo "$STORED"
 # {"packageId":"…","lockerId":"…","lockerCode":"A-SMALL","pickupCode":"482913"}
+
+# Customer: retrieve it with the locker id + pickup code
+CUSTOMER=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
+      -d '{"role":"CUSTOMER"}' | jq -r .token)
+curl -sXPOST localhost:3000/packages/retrieve -H "authorization: Bearer $CUSTOMER" \
+  -H 'content-type: application/json' \
+  -d "{\"lockerId\":$(jq .lockerId <<<"$STORED"),\"pickupCode\":$(jq .pickupCode <<<"$STORED")}"
+# {"packageId":"…","lockerCode":"A-SMALL","retrievedAt":"…",
+#  "storageFee":{"amountMinor":0,"currency":"AUD"},"opened":true}
+# — the locker is now FREE again.
 ```
 
-If no serviceable locker fits, the store call returns `409` with
-`{"code":"no_suitable_locker", …}`.
+If no serviceable locker fits, the store call returns `409 no_suitable_locker`. A retrieval that
+doesn't match a locker + active package + pickup code returns `404 retrieval_failed` (the same for
+all three, so nothing leaks).
 
 ## Endpoints
 
@@ -86,6 +98,7 @@ If no serviceable locker fits, the store call returns `409` with
 | `POST` | `/lockers` | Operator | Create a locker `{ code, size, stationId? }` |
 | `GET` | `/lockers` | Operator | List lockers with `FREE`/`OCCUPIED` |
 | `POST` | `/packages` | Agent | Store `{ size, customer{name,email?,phone?}, trackingRef? }` |
+| `POST` | `/packages/retrieve` | Customer | Retrieve `{ lockerId, pickupCode }` — opens the locker, returns the fee |
 
 ## Local development (without Docker)
 
@@ -102,7 +115,7 @@ npm run start:dev
 npm run test                  # unit tests (no DB)
 npm run lint
 docker compose up -d mysql    # e2e needs a MySQL
-npm run test:e2e              # includes the full Level 1 flow
+npm run test:e2e              # includes the full Level 1 + Level 2 flows
 ```
 
 Run one test file or case:
@@ -121,7 +134,7 @@ src/
   customers/    domain / application / infrastructure              (+ module)
   packages/     domain / application / infrastructure / interface  (+ module)
 migrations/     *.sql, applied in order and tracked in schema_migrations
-tasks/          per-task specs for Level 1
+tasks/          per-task specs (Level 1: 01–08, Level 2: 09–12)
 ```
 
 Dependencies point inward: HTTP → application → domain; infrastructure implements domain ports and

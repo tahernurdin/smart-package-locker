@@ -1,7 +1,7 @@
 # Tasks
 
 - **Level 1 — Basic locker and package storage** (tasks 01–08) — done
-- **Level 2 — Package retrieval and locker management** (tasks 09–12)
+- **Level 2 — Package retrieval and locker management** (tasks 09–12) — done
 
 See `../docs/implementation-plan.md` for the overall design and decisions.
 
@@ -48,7 +48,7 @@ policy seam introduced here), `FOR UPDATE SKIP LOCKED` allocation hardening (L4)
 | 09 | [Retrieval domain transition + repository reads](task-09-retrieval-domain-and-repository.md) | 07 | ✅ Done |
 | 10 | [RetrievePackageService (+ fee-policy seam)](task-10-retrieve-package-service.md) | 09 | ✅ Done |
 | 11 | [Retrieve package endpoint](task-11-retrieve-package-endpoint.md) | 10 | ✅ Done |
-| 12 | [Level 2 end-to-end + docs](task-12-level2-e2e.md) | 11 | Not started |
+| 12 | [Level 2 end-to-end + docs](task-12-level2-e2e.md) | 11 | ✅ Done |
 
 ## Conventions (all tasks)
 

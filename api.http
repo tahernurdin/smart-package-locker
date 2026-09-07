@@ -5,9 +5,8 @@
 # create resources are named (# @name ...) so later blocks can reuse
 # their responses.
 #
-# Status: only `GET /health` exists today. The lockers / packages / auth
-# endpoints below land with tasks 04–08 (see tasks/README.md) — they are
-# here so the file is ready as those tasks merge.
+# Status: health, auth, lockers, store, and retrieve are all implemented
+# (Levels 1–2). Storage fees (Level 3) still return 0.
 #
 # Suggested order: mint tokens → create lockers → list → store → retrieve.
 
