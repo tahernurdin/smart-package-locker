@@ -66,7 +66,7 @@ export class RetrievePackageService {
     });
 
     const retrieved = pkg.retrieve({ now, storageFeeMinor: amountMinor });
-    await this.packages.markRetrieved(retrieved);
+    await this.packages.saveRetrieval(retrieved);
 
     return {
       packageId: retrieved.id,

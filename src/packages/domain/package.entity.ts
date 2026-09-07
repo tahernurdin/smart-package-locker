@@ -2,68 +2,66 @@
 // the same terms as a locker's). It lives in the lockers domain, which acts as
 // the shared kernel for this concept.
 import type { LockerSize } from '../../lockers/domain/locker-size.js';
-import { PackageAlreadyRetrievedError } from './errors.js';
+import {
+  PackageAlreadyRetrievedError,
+  PackageAlreadyStoredError,
+} from './errors.js';
+import { LockerAssignment } from './locker-assignment.entity.js';
+import type { PackageStatus } from './package-status.js';
 
 export interface PackageProps {
   id: string;
-  lockerId: string;
   customerId: string;
   size: LockerSize;
-  pickupCodeHash: string;
   trackingRef: string | null;
-  storedByAgent: string | null;
-  storedAt: Date;
-  retrievedAt: Date | null;
-  storageFeeMinor: number | null;
+  status: PackageStatus;
+  createdAt: Date;
+  updatedAt: Date;
+  assignment: LockerAssignment | null;
 }
 
-/** One occupancy episode: a package in a locker, bracketed by stored/retrieved. */
+/**
+ * The parcel. Registered upstream against a known customer, then dropped by an
+ * agent (`storeInLocker`), then collected (`retrieve`). Aggregate root; owns its
+ * current `LockerAssignment`. Immutable — transitions return a new instance.
+ */
 export class Package {
   readonly id: string;
-  readonly lockerId: string;
   readonly customerId: string;
   readonly size: LockerSize;
-  readonly pickupCodeHash: string;
   readonly trackingRef: string | null;
-  readonly storedByAgent: string | null;
-  readonly storedAt: Date;
-  readonly retrievedAt: Date | null;
-  readonly storageFeeMinor: number | null;
+  readonly status: PackageStatus;
+  readonly createdAt: Date;
+  readonly updatedAt: Date;
+  readonly assignment: LockerAssignment | null;
 
   private constructor(props: PackageProps) {
     this.id = props.id;
-    this.lockerId = props.lockerId;
     this.customerId = props.customerId;
     this.size = props.size;
-    this.pickupCodeHash = props.pickupCodeHash;
     this.trackingRef = props.trackingRef;
-    this.storedByAgent = props.storedByAgent;
-    this.storedAt = props.storedAt;
-    this.retrievedAt = props.retrievedAt;
-    this.storageFeeMinor = props.storageFeeMinor;
+    this.status = props.status;
+    this.createdAt = props.createdAt;
+    this.updatedAt = props.updatedAt;
+    this.assignment = props.assignment;
   }
 
-  static storeNew(params: {
+  static register(params: {
     id: string;
-    lockerId: string;
     customerId: string;
     size: LockerSize;
-    pickupCodeHash: string;
     trackingRef?: string | null;
-    storedByAgent?: string | null;
     now: Date;
   }): Package {
     return new Package({
       id: params.id,
-      lockerId: params.lockerId,
       customerId: params.customerId,
       size: params.size,
-      pickupCodeHash: params.pickupCodeHash,
       trackingRef: params.trackingRef ?? null,
-      storedByAgent: params.storedByAgent ?? null,
-      storedAt: params.now,
-      retrievedAt: null,
-      storageFeeMinor: null,
+      status: 'REGISTERED',
+      createdAt: params.now,
+      updatedAt: params.now,
+      assignment: null,
     });
   }
 
@@ -71,30 +69,72 @@ export class Package {
     return new Package(props);
   }
 
-  get isActive(): boolean {
-    return this.retrievedAt === null;
+  private requireAssignment(): LockerAssignment {
+    if (!this.assignment) throw new Error('package has no locker assignment');
+    return this.assignment;
   }
 
-  /**
-   * Returns a retrieved copy (entities are immutable). `retrievedAt` is clamped
-   * to `storedAt` so a frozen test clock behind `storedAt` can't violate the
-   * `retrieved_at >= stored_at` DB constraint.
-   */
-  retrieve(params: { now: Date; storageFeeMinor: number }): Package {
-    if (!this.isActive) throw new PackageAlreadyRetrievedError();
-    const retrievedAt =
-      params.now.getTime() < this.storedAt.getTime() ? this.storedAt : params.now;
+  get lockerId(): string {
+    return this.requireAssignment().lockerId;
+  }
+
+  get pickupCodeHash(): string {
+    return this.requireAssignment().pickupCodeHash;
+  }
+
+  get storedAt(): Date {
+    return this.requireAssignment().storedAt;
+  }
+
+  get retrievedAt(): Date | null {
+    return this.assignment?.retrievedAt ?? null;
+  }
+
+  /** REGISTERED → STORED. Opens a fresh assignment for `lockerId`. */
+  storeInLocker(params: {
+    assignmentId: string;
+    lockerId: string;
+    pickupCodeHash: string;
+    storedByAgent?: string | null;
+    now: Date;
+  }): Package {
+    if (this.status !== 'REGISTERED') throw new PackageAlreadyStoredError();
+    const assignment = LockerAssignment.open({
+      id: params.assignmentId,
+      lockerId: params.lockerId,
+      pickupCodeHash: params.pickupCodeHash,
+      storedByAgent: params.storedByAgent ?? null,
+      now: params.now,
+    });
     return new Package({
       id: this.id,
-      lockerId: this.lockerId,
       customerId: this.customerId,
       size: this.size,
-      pickupCodeHash: this.pickupCodeHash,
       trackingRef: this.trackingRef,
-      storedByAgent: this.storedByAgent,
-      storedAt: this.storedAt,
-      retrievedAt,
-      storageFeeMinor: params.storageFeeMinor,
+      status: 'STORED',
+      createdAt: this.createdAt,
+      updatedAt: params.now,
+      assignment,
+    });
+  }
+
+  /** STORED → RETRIEVED. Closes the assignment with the computed fee. */
+  retrieve(params: { now: Date; storageFeeMinor: number }): Package {
+    if (this.status !== 'STORED' || !this.assignment?.isActive) {
+      throw new PackageAlreadyRetrievedError();
+    }
+    return new Package({
+      id: this.id,
+      customerId: this.customerId,
+      size: this.size,
+      trackingRef: this.trackingRef,
+      status: 'RETRIEVED',
+      createdAt: this.createdAt,
+      updatedAt: params.now,
+      assignment: this.assignment.close({
+        now: params.now,
+        storageFeeMinor: params.storageFeeMinor,
+      }),
     });
   }
 }

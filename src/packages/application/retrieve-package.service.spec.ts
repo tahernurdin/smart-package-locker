@@ -28,11 +28,14 @@ function theLocker() {
 }
 
 function activePackage(code = CODE) {
-  return Package.storeNew({
+  return Package.register({
     id: 'p-1',
-    lockerId: 'l-1',
     customerId: 'c-1',
     size: LockerSize.of('SMALL'),
+    now: new Date('2026-05-30T00:00:00.000Z'),
+  }).storeInLocker({
+    assignmentId: 'a-1',
+    lockerId: 'l-1',
     pickupCodeHash: hasher.hash(code),
     now: new Date('2026-06-01T00:00:00.000Z'),
   });
@@ -44,20 +47,20 @@ function build(opts: {
   fee?: number;
   now?: Date;
 }) {
-  const markRetrieved = vi.fn(async () => undefined);
+  const saveRetrieval = vi.fn(async () => undefined);
   const lockers = {
     findById: async () => opts.locker ?? null,
   } as unknown as LockerRepository;
   const packages = {
     findActiveByLocker: async () =>
       opts.pkg === undefined ? activePackage() : opts.pkg,
-    markRetrieved,
+    saveRetrieval,
   } as unknown as PackageRepository;
   const feePolicy: StorageFeePolicy = { calculate: async () => opts.fee ?? 0 };
   const clock = { now: () => opts.now ?? new Date('2026-06-05T00:00:00.000Z') };
 
   return {
-    markRetrieved,
+    saveRetrieval,
     service: new RetrievePackageService(
       lockers,
       packages,
@@ -71,7 +74,7 @@ function build(opts: {
 
 describe('RetrievePackageService', () => {
   it('retrieves the package, records it once, and returns the confirmation', async () => {
-    const { service, markRetrieved } = build({
+    const { service, saveRetrieval } = build({
       locker: theLocker(),
       pkg: activePackage(),
       fee: 0,
@@ -87,12 +90,12 @@ describe('RetrievePackageService', () => {
       storageFee: { amountMinor: 0, currency: 'AUD' },
       opened: true,
     });
-    expect(markRetrieved).toHaveBeenCalledTimes(1);
-    expect(markRetrieved.mock.calls[0][0].storageFeeMinor).toBe(0);
+    expect(saveRetrieval).toHaveBeenCalledTimes(1);
+    expect(saveRetrieval.mock.calls[0][0].assignment.storageFeeMinor).toBe(0);
   });
 
   it('passes the fee from the policy straight through', async () => {
-    const { service, markRetrieved } = build({
+    const { service, saveRetrieval } = build({
       locker: theLocker(),
       pkg: activePackage(),
       fee: 1500,
@@ -101,7 +104,7 @@ describe('RetrievePackageService', () => {
     const result = await service.retrieve({ lockerId: 'l-1', pickupCode: CODE });
 
     expect(result.storageFee.amountMinor).toBe(1500);
-    expect(markRetrieved.mock.calls[0][0].storageFeeMinor).toBe(1500);
+    expect(saveRetrieval.mock.calls[0][0].assignment.storageFeeMinor).toBe(1500);
   });
 
   it('fails the same way for an unknown locker, no active package, or a wrong code', async () => {
@@ -122,14 +125,14 @@ describe('RetrievePackageService', () => {
   });
 
   it('does not record a retrieval when the code is wrong', async () => {
-    const { service, markRetrieved } = build({
+    const { service, saveRetrieval } = build({
       locker: theLocker(),
       pkg: activePackage(),
     });
     await expect(
       service.retrieve({ lockerId: 'l-1', pickupCode: '111111' }),
     ).rejects.toThrow();
-    expect(markRetrieved).not.toHaveBeenCalled();
+    expect(saveRetrieval).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed pickup code', async () => {

@@ -1,8 +1,19 @@
-import { Body, Controller, HttpCode, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+} from '@nestjs/common';
 import { Auth } from '../../shared/auth/auth.decorator.js';
 import type { AuthUser } from '../../shared/auth/auth-user.js';
 import { CurrentUser } from '../../shared/auth/current-user.decorator.js';
 import { Role } from '../../shared/auth/roles.js';
+import {
+  RegisterPackageService,
+  type RegisteredPackage,
+} from '../application/register-package.service.js';
 import {
   RetrievePackageService,
   type RetrievedPackage,
@@ -11,12 +22,13 @@ import {
   StorePackageService,
   type StoredPackage,
 } from '../application/store-package.service.js';
+import { RegisterPackageDto } from './dto/register-package.dto.js';
 import { RetrievePackageDto } from './dto/retrieve-package.dto.js';
-import { StorePackageDto } from './dto/store-package.dto.js';
 
 @Controller('packages')
 export class PackagesController {
   constructor(
+    private readonly registerPackage: RegisterPackageService,
     private readonly storePackage: StorePackageService,
     private readonly retrievePackage: RetrievePackageService,
   ) {}
@@ -24,16 +36,18 @@ export class PackagesController {
   @Post()
   @Auth(Role.Agent)
   @HttpCode(201)
+  register(@Body() dto: RegisterPackageDto): Promise<RegisteredPackage> {
+    return this.registerPackage.register(dto);
+  }
+
+  @Post(':id/store')
+  @Auth(Role.Agent)
+  @HttpCode(200)
   store(
-    @Body() dto: StorePackageDto,
+    @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: AuthUser,
   ): Promise<StoredPackage> {
-    return this.storePackage.storePackage({
-      size: dto.size,
-      customer: dto.customer,
-      trackingRef: dto.trackingRef,
-      agentId: user.sub,
-    });
+    return this.storePackage.store({ packageId: id, agentId: user.sub });
   }
 
   @Post('retrieve')

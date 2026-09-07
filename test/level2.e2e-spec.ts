@@ -34,6 +34,7 @@ describe('Level 2 — retrieval (e2e)', () => {
   });
 
   beforeEach(async () => {
+    await pool.query('DELETE FROM locker_assignment');
     await pool.query('DELETE FROM package');
     await pool.query('DELETE FROM locker');
     await pool.query('DELETE FROM customer');
@@ -50,6 +51,34 @@ describe('Level 2 — retrieval (e2e)', () => {
     return res.body.token as string;
   }
 
+  async function createCustomer(agent: string): Promise<string> {
+    const res = await http()
+      .post('/customers')
+      .set('authorization', `Bearer ${agent}`)
+      .send({ name: 'Jo', email: `jo-${Math.random().toString(36).slice(2)}@x.com` })
+      .expect(201);
+    return res.body.customerId as string;
+  }
+
+  async function registerAndStore(agent: string, size: string, code = 'A-01') {
+    const customerId = await createCustomer(agent);
+    const registered = await http()
+      .post('/packages')
+      .set('authorization', `Bearer ${agent}`)
+      .send({ size, customerId })
+      .expect(201);
+    const stored = await http()
+      .post(`/packages/${registered.body.packageId}/store`)
+      .set('authorization', `Bearer ${agent}`)
+      .expect(200);
+    return {
+      lockerId: stored.body.lockerId as string,
+      pickupCode: stored.body.pickupCode as string,
+      packageId: stored.body.packageId as string,
+      lockerCode: code,
+    };
+  }
+
   async function seedStoredPackage() {
     const op = await token('OPERATOR');
     const agent = await token('AGENT');
@@ -58,18 +87,7 @@ describe('Level 2 — retrieval (e2e)', () => {
       .set('authorization', `Bearer ${op}`)
       .send({ code: 'A-01', size: 'MEDIUM' })
       .expect(201);
-    const stored = await http()
-      .post('/packages')
-      .set('authorization', `Bearer ${agent}`)
-      .send({ size: 'MEDIUM', customer: { name: 'Jo', email: 'jo@example.com' } })
-      .expect(201);
-    return {
-      op,
-      agent,
-      lockerId: stored.body.lockerId as string,
-      pickupCode: stored.body.pickupCode as string,
-      packageId: stored.body.packageId as string,
-    };
+    return { op, agent, ...(await registerAndStore(agent, 'MEDIUM')) };
   }
 
   it('retrieves a package, returns a fee-0 confirmation, and frees the locker', async () => {
@@ -101,11 +119,7 @@ describe('Level 2 — retrieval (e2e)', () => {
     ).toMatchObject({ availability: 'FREE', activePackageId: null });
 
     // the freed locker takes a new package
-    await http()
-      .post('/packages')
-      .set('authorization', `Bearer ${agent}`)
-      .send({ size: 'MEDIUM', customer: { name: 'Amy', phone: '111' } })
-      .expect(201);
+    await registerAndStore(agent, 'MEDIUM');
   });
 
   it('rejects every invalid retrieval the same way', async () => {
@@ -162,7 +176,7 @@ describe('Level 2 — retrieval (e2e)', () => {
     expect(statuses.filter((s) => s === 200)).toHaveLength(1);
 
     const [rows] = await pool.query<RowDataPacket[]>(
-      'SELECT COUNT(*) AS count FROM package WHERE retrieved_at IS NOT NULL',
+      'SELECT COUNT(*) AS count FROM locker_assignment WHERE retrieved_at IS NOT NULL',
     );
     expect(Number(rows[0].count)).toBe(1);
   });

@@ -42,10 +42,6 @@ class FakeLockerRepository implements LockerRepository {
       station: { id: locker.stationId, name: 'Test Station', location: null },
     }));
   }
-
-  async findAvailableSmallestFit(): Promise<Locker | null> {
-    return null;
-  }
 }
 
 const clock: Clock = { now: () => new Date('2026-06-01T12:00:00.000Z') };

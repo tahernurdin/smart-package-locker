@@ -50,36 +50,57 @@ CREATE TABLE IF NOT EXISTS customer (
   CONSTRAINT chk_customer_has_contact CHECK (email IS NOT NULL OR phone IS NOT NULL)
 );
 
+-- The parcel. Registered upstream (order / carrier feed) against a known
+-- customer, then dropped by an agent, then collected. The storage episode lives
+-- in locker_assignment.
 CREATE TABLE IF NOT EXISTS package (
+  id           CHAR(36)     NOT NULL,
+  customer_id  CHAR(36)     NOT NULL,
+  size_code    VARCHAR(20)  NOT NULL,
+  tracking_ref VARCHAR(120) NULL,
+  status       VARCHAR(20)  NOT NULL,
+  created_at   DATETIME(6)  NOT NULL,
+  updated_at   DATETIME(6)  NOT NULL,
+  PRIMARY KEY (id),
+  KEY ix_package_customer (customer_id, created_at),
+  CONSTRAINT fk_package_customer FOREIGN KEY (customer_id) REFERENCES customer (id),
+  CONSTRAINT chk_package_size   CHECK (size_code IN ('SMALL', 'MEDIUM', 'LARGE')),
+  CONSTRAINT chk_package_status CHECK (status IN ('REGISTERED', 'STORED', 'RETRIEVED'))
+);
+
+-- One storage episode: a package occupying a locker, bracketed by stored_at and
+-- retrieved_at. Rows are never deleted on pickup - the history backs the fee
+-- calculation and any audit.
+CREATE TABLE IF NOT EXISTS locker_assignment (
   id                CHAR(36)     NOT NULL,
+  package_id        CHAR(36)     NOT NULL,
   locker_id         CHAR(36)     NOT NULL,
-  customer_id       CHAR(36)     NOT NULL,
-  size_code         VARCHAR(20)  NOT NULL,
   pickup_code_hash  CHAR(64)     NOT NULL,
-  tracking_ref      VARCHAR(120) NULL,
   stored_by_agent   VARCHAR(120) NULL,
   stored_at         DATETIME(6)  NOT NULL,
   retrieved_at      DATETIME(6)  NULL,
   storage_fee_minor BIGINT       NULL,
-  -- NULL once retrieved, so the UNIQUE below only constrains *active* packages.
+  -- Each is NULL once retrieved, so the UNIQUE keys only constrain *active* rows.
   active_locker_id CHAR(36)
     GENERATED ALWAYS AS (IF(retrieved_at IS NULL, locker_id, NULL)) STORED,
   active_pickup_code_hash CHAR(64)
     GENERATED ALWAYS AS (IF(retrieved_at IS NULL, pickup_code_hash, NULL)) STORED,
+  active_package_id CHAR(36)
+    GENERATED ALWAYS AS (IF(retrieved_at IS NULL, package_id, NULL)) STORED,
   PRIMARY KEY (id),
   -- THE core invariant: a locker holds at most one active package. Enforced here
   -- so it holds under any request interleaving — a race yields ER_DUP_ENTRY.
-  UNIQUE KEY uq_one_active_package_per_locker (active_locker_id),
-  UNIQUE KEY uq_active_pickup_code (active_pickup_code_hash),
-  KEY ix_package_customer (customer_id, stored_at),
-  CONSTRAINT fk_package_locker   FOREIGN KEY (locker_id)   REFERENCES locker (id),
-  CONSTRAINT fk_package_customer FOREIGN KEY (customer_id) REFERENCES customer (id),
-  CONSTRAINT chk_package_size CHECK (size_code IN ('SMALL', 'MEDIUM', 'LARGE')),
-  CONSTRAINT chk_package_retrieved_after_stored
+  UNIQUE KEY uq_one_active_assignment_per_locker  (active_locker_id),
+  UNIQUE KEY uq_active_pickup_code                (active_pickup_code_hash),
+  UNIQUE KEY uq_one_active_assignment_per_package (active_package_id),
+  KEY ix_locker_assignment_package (package_id, stored_at),
+  CONSTRAINT fk_assignment_package FOREIGN KEY (package_id) REFERENCES package (id),
+  CONSTRAINT fk_assignment_locker  FOREIGN KEY (locker_id)  REFERENCES locker (id),
+  CONSTRAINT chk_assignment_retrieved_after_stored
     CHECK (retrieved_at IS NULL OR retrieved_at >= stored_at),
-  CONSTRAINT chk_package_fee_iff_retrieved
+  CONSTRAINT chk_assignment_fee_iff_retrieved
     CHECK ((retrieved_at IS NULL) = (storage_fee_minor IS NULL)),
-  CONSTRAINT chk_package_fee_non_negative
+  CONSTRAINT chk_assignment_fee_non_negative
     CHECK (storage_fee_minor IS NULL OR storage_fee_minor >= 0)
 );
 

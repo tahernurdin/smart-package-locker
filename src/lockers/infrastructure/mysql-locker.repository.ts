@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { isDuplicateEntryError } from '../../shared/database/mysql-errors.js';
 import { MYSQL_POOL } from '../../shared/database/mysql.pool.js';
+import { sizeOrderExpr } from '../../shared/database/size-order.js';
 import { LockerCodeTakenError } from '../domain/errors.js';
 import { Locker } from '../domain/locker.entity.js';
 import { LockerSize } from '../domain/locker-size.js';
@@ -10,14 +11,6 @@ import type {
   LockerOccupancy,
   LockerRepository,
 } from '../domain/locker.repository.js';
-
-/**
- * Size ordering for SQL. Mirrors `LockerSize` rank (the source of truth) — only
- * the allocator query needs sizes ordered, so it lives inline rather than in a
- * reference table.
- */
-const sizeRank = (expr: string) =>
-  `FIELD(${expr}, 'SMALL', 'MEDIUM', 'LARGE')`;
 
 @Injectable()
 export class MysqlLockerRepository implements LockerRepository {
@@ -74,13 +67,13 @@ export class MysqlLockerRepository implements LockerRepository {
     const [rows] = await this.pool.query<RowDataPacket[]>(
       `SELECT l.id, l.station_id, l.code, l.size_code, l.status,
               l.created_at, l.updated_at,
-              p.id AS active_package_id,
+              la.package_id AS active_package_id,
               st.name AS station_name, st.location AS station_location
        FROM locker l
        JOIN locker_station st ON st.id = l.station_id
-       LEFT JOIN package p ON p.active_locker_id = l.id
+       LEFT JOIN locker_assignment la ON la.active_locker_id = l.id
        WHERE (:stationId IS NULL OR l.station_id = :stationId)
-       ORDER BY ${sizeRank('l.size_code')} ASC, l.code ASC`,
+       ORDER BY ${sizeOrderExpr('l.size_code')} ASC, l.code ASC`,
       { stationId: filter.stationId ?? null },
     );
     return rows.map((row) => ({
@@ -92,26 +85,6 @@ export class MysqlLockerRepository implements LockerRepository {
         location: (row.station_location as string | null) ?? null,
       },
     }));
-  }
-
-  async findAvailableSmallestFit(
-    stationId: string,
-    required: LockerSize,
-  ): Promise<Locker | null> {
-    const [rows] = await this.pool.query<RowDataPacket[]>(
-      `SELECT l.id, l.station_id, l.code, l.size_code, l.status,
-              l.created_at, l.updated_at
-       FROM locker l
-       LEFT JOIN package p ON p.active_locker_id = l.id
-       WHERE l.station_id = :stationId
-         AND l.status = 'IN_SERVICE'
-         AND p.id IS NULL
-         AND ${sizeRank('l.size_code')} >= ${sizeRank(':requiredCode')}
-       ORDER BY ${sizeRank('l.size_code')} ASC, l.code ASC
-       LIMIT 1`,
-      { stationId, requiredCode: required.code },
-    );
-    return rows.length ? this.toLocker(rows[0]) : null;
   }
 
   private toLocker(row: RowDataPacket): Locker {

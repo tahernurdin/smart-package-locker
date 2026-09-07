@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CustomersModule } from '../customers/customers.module.js';
 import { LockersModule } from '../lockers/lockers.module.js';
+import { RegisterPackageService } from './application/register-package.service.js';
 import { RetrievePackageService } from './application/retrieve-package.service.js';
 import { StorePackageService } from './application/store-package.service.js';
 import { PACKAGE_REPOSITORY } from './domain/package.repository.js';
@@ -15,6 +16,7 @@ import { PackagesController } from './interface/packages.controller.js';
   imports: [LockersModule, CustomersModule],
   controllers: [PackagesController],
   providers: [
+    RegisterPackageService,
     StorePackageService,
     RetrievePackageService,
     { provide: PACKAGE_REPOSITORY, useClass: MysqlPackageRepository },

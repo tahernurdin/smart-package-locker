@@ -4,6 +4,19 @@ import {
   ValidationDomainError,
 } from '../../shared/errors/domain-error.js';
 
+export class PackageNotFoundError extends NotFoundDomainError {
+  constructor(id: string) {
+    super('package_not_found', `No package with id ${id}`, { id });
+  }
+}
+
+/** Store was called on a package that is already STORED or RETRIEVED. */
+export class PackageAlreadyStoredError extends ConflictDomainError {
+  constructor() {
+    super('package_already_stored', 'This package has already been stored');
+  }
+}
+
 export class NoSuitableLockerError extends ConflictDomainError {
   constructor(size: string) {
     super(
@@ -24,7 +37,7 @@ export class LockerJustTakenError extends ConflictDomainError {
   }
 }
 
-/** The generated pickup code clashed with another active package's — regenerate. */
+/** The generated pickup code clashed with another active one — regenerate. */
 export class PickupCodeCollisionError extends ConflictDomainError {
   constructor() {
     super('pickup_code_collision', 'Pickup code collision, please retry');

@@ -1,6 +1,6 @@
 # Task 19 — Split `package` into `package` + `locker_assignment`
 
-**Level:** refactor (absorbs Level 4) · **Depends on:** 18 · **Status:** Not started
+**Level:** refactor (absorbs Level 4) · **Status:** Done (e2e reshape pulled in to keep every commit green)
 
 ## Why
 
