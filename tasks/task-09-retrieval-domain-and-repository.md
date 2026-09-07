@@ -1,6 +1,6 @@
 # Task 09 — Package retrieval: domain transition + repository reads
 
-**Level:** 2 · **Depends on:** 07 · **Status:** Not started
+**Level:** 2 · **Depends on:** 07 · **Status:** Done
 
 ## Goal
 

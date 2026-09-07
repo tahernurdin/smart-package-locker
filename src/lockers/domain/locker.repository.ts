@@ -12,6 +12,8 @@ export interface LockerOccupancy {
 export interface LockerRepository {
   save(locker: Locker): Promise<void>;
 
+  findById(id: string): Promise<Locker | null>;
+
   existsByStationAndCode(stationId: string, code: string): Promise<boolean>;
 
   /** Every locker with its derived occupancy, ordered by size then code. */

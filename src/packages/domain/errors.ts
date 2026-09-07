@@ -1,5 +1,6 @@
 import {
   ConflictDomainError,
+  NotFoundDomainError,
   ValidationDomainError,
 } from '../../shared/errors/domain-error.js';
 
@@ -33,5 +34,23 @@ export class PickupCodeCollisionError extends ConflictDomainError {
 export class InvalidPickupCodeError extends ValidationDomainError {
   constructor() {
     super('invalid_pickup_code', 'Pickup code must be exactly 6 digits');
+  }
+}
+
+/**
+ * One error for every "that doesn't match" case in retrieval — unknown locker,
+ * no active package, wrong pickup code — so the response leaks nothing about
+ * which part was wrong.
+ */
+export class PackageNotFoundForRetrievalError extends NotFoundDomainError {
+  constructor() {
+    super('retrieval_failed', 'No package matches that locker and pickup code');
+  }
+}
+
+/** The package was retrieved by a concurrent request first. */
+export class PackageAlreadyRetrievedError extends ConflictDomainError {
+  constructor() {
+    super('package_already_retrieved', 'This package has already been retrieved');
   }
 }

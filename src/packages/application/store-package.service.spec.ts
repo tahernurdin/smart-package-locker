@@ -31,6 +31,9 @@ function locker(id: string, code: string, size: 'SMALL' | 'MEDIUM' | 'LARGE') {
 class FakeLockerRepo implements LockerRepository {
   constructor(private free: Locker[]) {}
   async save(): Promise<void> {}
+  async findById(id: string): Promise<Locker | null> {
+    return this.free.find((l) => l.id === id) ?? null;
+  }
   async existsByStationAndCode(): Promise<boolean> {
     return false;
   }
@@ -56,6 +59,10 @@ class FakePackageRepo implements PackageRepository {
     if (failure) throw failure;
     this.saved.push(pkg);
   }
+  async findActiveByLocker(lockerId: string): Promise<Package | null> {
+    return this.saved.find((p) => p.lockerId === lockerId && p.isActive) ?? null;
+  }
+  async markRetrieved(): Promise<void> {}
 }
 
 const customers = {

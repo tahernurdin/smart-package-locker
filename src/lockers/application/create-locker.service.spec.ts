@@ -24,6 +24,10 @@ class FakeLockerRepository implements LockerRepository {
     this.saved.push(locker);
   }
 
+  async findById(id: string): Promise<Locker | null> {
+    return this.saved.find((l) => l.id === id) ?? null;
+  }
+
   async existsByStationAndCode(
     stationId: string,
     code: string,

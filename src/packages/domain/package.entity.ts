@@ -2,6 +2,7 @@
 // the same terms as a locker's). It lives in the lockers domain, which acts as
 // the shared kernel for this concept.
 import type { LockerSize } from '../../lockers/domain/locker-size.js';
+import { PackageAlreadyRetrievedError } from './errors.js';
 
 export interface PackageProps {
   id: string;
@@ -72,5 +73,28 @@ export class Package {
 
   get isActive(): boolean {
     return this.retrievedAt === null;
+  }
+
+  /**
+   * Returns a retrieved copy (entities are immutable). `retrievedAt` is clamped
+   * to `storedAt` so a frozen test clock behind `storedAt` can't violate the
+   * `retrieved_at >= stored_at` DB constraint.
+   */
+  retrieve(params: { now: Date; storageFeeMinor: number }): Package {
+    if (!this.isActive) throw new PackageAlreadyRetrievedError();
+    const retrievedAt =
+      params.now.getTime() < this.storedAt.getTime() ? this.storedAt : params.now;
+    return new Package({
+      id: this.id,
+      lockerId: this.lockerId,
+      customerId: this.customerId,
+      size: this.size,
+      pickupCodeHash: this.pickupCodeHash,
+      trackingRef: this.trackingRef,
+      storedByAgent: this.storedByAgent,
+      storedAt: this.storedAt,
+      retrievedAt,
+      storageFeeMinor: params.storageFeeMinor,
+    });
   }
 }

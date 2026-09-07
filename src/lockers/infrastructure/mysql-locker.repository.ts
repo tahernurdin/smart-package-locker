@@ -39,6 +39,15 @@ export class MysqlLockerRepository implements LockerRepository {
     }
   }
 
+  async findById(id: string): Promise<Locker | null> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT id, station_id, code, size_code, status, created_at, updated_at
+       FROM locker WHERE id = :id LIMIT 1`,
+      { id },
+    );
+    return rows.length ? this.toLocker(rows[0]) : null;
+  }
+
   async existsByStationAndCode(
     stationId: string,
     code: string,
