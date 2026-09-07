@@ -7,14 +7,6 @@
 --   * Day ranges are half-open [from_day, to_day); to_day NULL means open-ended.
 --   * ids (CHAR(36) UUIDs) and DATETIME(6) values are always supplied by the
 --     application, never by DB defaults, so behaviour is deterministic in tests.
---
--- Differences from the PostgreSQL version
---   * Partial unique indexes -> STORED generated columns that are NULL once the
---     package is retrieved, with a plain UNIQUE over them.
---   * EXCLUDE USING gist (no overlapping rate bands) -> covered by a seed test.
---   * Postgres extensions / int4range -> dropped.
---   * Size is a fixed enum (SMALL/MEDIUM/LARGE) enforced by CHECK, not a
---     reference table. Its ordering lives in the LockerSize value object.
 
 CREATE TABLE IF NOT EXISTS locker_station (
   id         CHAR(36)     NOT NULL,
@@ -73,19 +65,13 @@ CREATE TABLE IF NOT EXISTS locker_assignment (
   stored_at         DATETIME(6)  NOT NULL,
   retrieved_at      DATETIME(6)  NULL,
   storage_fee_minor BIGINT       NULL,
-  -- Each is NULL once retrieved, so the UNIQUE keys only constrain *active* rows.
+  -- NULL once retrieved, so the UNIQUE key below only constrains *active* rows.
   active_locker_id CHAR(36)
     GENERATED ALWAYS AS (IF(retrieved_at IS NULL, locker_id, NULL)) STORED,
-  active_pickup_code_hash CHAR(64)
-    GENERATED ALWAYS AS (IF(retrieved_at IS NULL, pickup_code_hash, NULL)) STORED,
-  active_package_id CHAR(36)
-    GENERATED ALWAYS AS (IF(retrieved_at IS NULL, package_id, NULL)) STORED,
   PRIMARY KEY (id),
   -- THE core invariant: a locker holds at most one active package. Enforced here
   -- so it holds under any request interleaving — a race yields ER_DUP_ENTRY.
-  UNIQUE KEY uq_one_active_assignment_per_locker  (active_locker_id),
-  UNIQUE KEY uq_active_pickup_code                (active_pickup_code_hash),
-  UNIQUE KEY uq_one_active_assignment_per_package (active_package_id),
+  UNIQUE KEY uq_one_active_assignment_per_locker (active_locker_id),
   KEY ix_locker_assignment_package (package_id, stored_at),
   CONSTRAINT fk_assignment_package FOREIGN KEY (package_id) REFERENCES package (id),
   CONSTRAINT fk_assignment_locker  FOREIGN KEY (locker_id)  REFERENCES locker (id),
@@ -110,4 +96,6 @@ CREATE TABLE IF NOT EXISTS storage_rate (
   CONSTRAINT chk_storage_rate_from_day_non_negative CHECK (from_day >= 0),
   CONSTRAINT chk_storage_rate_band_ordered CHECK (to_day IS NULL OR to_day > from_day),
   CONSTRAINT chk_storage_rate_non_negative CHECK (rate_minor >= 0)
+  -- Nothing here stops two bands of the same size from overlapping; that needs a
+  -- range-exclusion constraint MySQL doesn't have. A seed test covers it instead.
 );

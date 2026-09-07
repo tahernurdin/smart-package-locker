@@ -22,8 +22,11 @@ Brief: `Smart Package Everest Coding challenge.pdf`. Reference data model: `001_
 - `gen_random_uuid()` / `timestamptz` → `CHAR(36)` app-supplied, `DATETIME(6)` UTC app-supplied (via `Clock`).
 - **Partial unique index** `one_active_package_per_locker` → STORED generated column
   `active_locker_id = IF(retrieved_at IS NULL, locker_id, NULL)` + `UNIQUE(active_locker_id)`.
-  Same trick for the active pickup-code hash. This is the Level 4 correctness backstop — a race
-  produces `ER_DUP_ENTRY (1062)`, not a double booking.
+  This is the Level 4 correctness backstop — a race produces `ER_DUP_ENTRY (1062)`, not a double
+  booking. It is the *only* generated column: the reference schema's `active_pickup_code` index
+  guards a lookup that doesn't exist (retrieval is `{ lockerId, pickupCode }`, so codes only need
+  to be distinct within a locker), and an active-`package_id` key would duplicate the conditional
+  `UPDATE package ... WHERE status = 'REGISTERED'`.
 - `EXCLUDE USING gist` (no overlapping rate bands) → not expressible in MySQL; enforced by a
   seed/config test instead.
 - `CHECK` constraints → kept (MySQL 8.0.16+ enforces them) → image `mysql:8.4`.

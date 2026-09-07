@@ -46,13 +46,7 @@ CREATE TABLE locker_assignment (
   storage_fee_minor BIGINT       NULL,
   active_locker_id CHAR(36)
     GENERATED ALWAYS AS (IF(retrieved_at IS NULL, locker_id, NULL)) STORED,
-  active_pickup_code_hash CHAR(64)
-    GENERATED ALWAYS AS (IF(retrieved_at IS NULL, pickup_code_hash, NULL)) STORED,
-  active_package_id CHAR(36)
-    GENERATED ALWAYS AS (IF(retrieved_at IS NULL, package_id, NULL)) STORED,
-  UNIQUE KEY uq_one_active_assignment_per_locker  (active_locker_id),
-  UNIQUE KEY uq_active_pickup_code                (active_pickup_code_hash),
-  UNIQUE KEY uq_one_active_assignment_per_package (active_package_id),
+  UNIQUE KEY uq_one_active_assignment_per_locker (active_locker_id),
   KEY ix_locker_assignment_package (package_id, stored_at),
   CONSTRAINT fk_assignment_package FOREIGN KEY (package_id) REFERENCES package (id),
   CONSTRAINT fk_assignment_locker  FOREIGN KEY (locker_id)  REFERENCES locker (id),
@@ -102,7 +96,7 @@ One aggregate: `Package` is the root, `LockerAssignment` a child entity it owns.
 | `save(pkg)` | insert a `REGISTERED` package (`package` row only) |
 | `findById(id)` | load the package + its active assignment (if `STORED`); null if absent |
 | `findActiveByLocker(lockerId)` | package with active assignment where `active_locker_id = ?` |
-| `reserveLockerAndStore(params)` | **one transaction**: `SELECT … FROM locker … FOR UPDATE OF l SKIP LOCKED LIMIT 1` (smallest fit, free, in-service), `null` ⇒ return null; `INSERT locker_assignment`; `UPDATE package SET status='STORED', updated_at=? WHERE id=? AND status='REGISTERED'` (0 rows ⇒ `PackageAlreadyStoredError`); map `ER_DUP_ENTRY` on `active_locker_id`/`active_pickup_code_hash` to `LockerJustTakenError`/`PickupCodeCollisionError`; return `{ lockerId, lockerCode }` |
+| `reserveLockerAndStore(params)` | **one transaction**: `SELECT … FROM locker … FOR UPDATE OF l SKIP LOCKED LIMIT 1` (smallest fit, free, in-service), `null` ⇒ return null; `INSERT locker_assignment`; `UPDATE package SET status='STORED', updated_at=? WHERE id=? AND status='REGISTERED'` (0 rows ⇒ `PackageAlreadyStoredError`); map `ER_DUP_ENTRY` on `active_locker_id` to `LockerJustTakenError`; return `{ lockerId, lockerCode }` |
 | `saveRetrieval(pkg)` | `UPDATE locker_assignment SET retrieved_at=?, storage_fee_minor=? WHERE id=? AND retrieved_at IS NULL` (0 rows ⇒ `PackageAlreadyRetrievedError`); `UPDATE package SET status='RETRIEVED', updated_at=?` |
 
 - `src/shared/database/size-order.ts` — `sizeOrderExpr(col)` → `FIELD(col,'SMALL','MEDIUM','LARGE')`,

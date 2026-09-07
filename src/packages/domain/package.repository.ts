@@ -34,9 +34,9 @@ export interface PackageRepository {
    * One transaction: pick the smallest free serviceable locker at `stationId`
    * that fits `requiredSize` (`FOR UPDATE ... SKIP LOCKED`, so concurrent
    * callers get a different one), insert the assignment from `build`, flip the
-   * package to `STORED`. null when nothing fits. Maps DB unique violations to
-   * `LockerJustTakenError` / `PickupCodeCollisionError`; a concurrent store of
-   * the same package throws `PackageAlreadyStoredError`.
+   * package to `STORED`. null when nothing fits. Maps a DB unique violation to
+   * `LockerJustTakenError`; a concurrent store of the same package throws
+   * `PackageAlreadyStoredError`.
    */
   reserveLockerAndStore(
     params: ReserveLockerAndStoreParams,

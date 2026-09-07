@@ -1,10 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { LockerSize } from '../../lockers/domain/locker-size.js';
-import {
-  duplicateEntryKey,
-  isDuplicateEntryError,
-} from '../../shared/database/mysql-errors.js';
+import { isDuplicateEntryError } from '../../shared/database/mysql-errors.js';
 import { MYSQL_POOL } from '../../shared/database/mysql.pool.js';
 import { sizeOrderExpr } from '../../shared/database/size-order.js';
 import { withTransaction } from '../../shared/database/transaction.js';
@@ -12,7 +9,6 @@ import {
   LockerJustTakenError,
   PackageAlreadyRetrievedError,
   PackageAlreadyStoredError,
-  PickupCodeCollisionError,
 } from '../domain/errors.js';
 import { LockerAssignment } from '../domain/locker-assignment.entity.js';
 import { Package } from '../domain/package.entity.js';
@@ -118,12 +114,9 @@ export class MysqlPackageRepository implements PackageRepository {
           },
         );
       } catch (err) {
-        if (isDuplicateEntryError(err)) {
-          const key = duplicateEntryKey(err) ?? '';
-          throw key.includes('pickup_code')
-            ? new PickupCodeCollisionError()
-            : new LockerJustTakenError();
-        }
+        // uq_one_active_assignment_per_locker is the only unique key this insert
+        // can violate: another request claimed the locker after our SELECT.
+        if (isDuplicateEntryError(err)) throw new LockerJustTakenError();
         throw err;
       }
 

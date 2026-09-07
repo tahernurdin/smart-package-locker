@@ -12,7 +12,6 @@ import {
   NoSuitableLockerError,
   PackageAlreadyStoredError,
   PackageNotFoundError,
-  PickupCodeCollisionError,
 } from '../domain/errors.js';
 import type { PackageStatus } from '../domain/package-status.js';
 import {
@@ -34,7 +33,7 @@ export interface StoredPackage {
   status: PackageStatus;
 }
 
-/** Retries cover a lost allocation race / a pickup-code collision. */
+/** Retries cover a lost allocation race. */
 const MAX_ATTEMPTS = 3;
 
 @Injectable()
@@ -84,11 +83,7 @@ export class StorePackageService {
           status: 'STORED',
         };
       } catch (err) {
-        if (
-          (err instanceof PickupCodeCollisionError ||
-            err instanceof LockerJustTakenError) &&
-          attempt < MAX_ATTEMPTS
-        ) {
+        if (err instanceof LockerJustTakenError && attempt < MAX_ATTEMPTS) {
           continue;
         }
         throw err;

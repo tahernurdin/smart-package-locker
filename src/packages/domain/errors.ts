@@ -37,13 +37,6 @@ export class LockerJustTakenError extends ConflictDomainError {
   }
 }
 
-/** The generated pickup code clashed with another active one — regenerate. */
-export class PickupCodeCollisionError extends ConflictDomainError {
-  constructor() {
-    super('pickup_code_collision', 'Pickup code collision, please retry');
-  }
-}
-
 export class InvalidPickupCodeError extends ValidationDomainError {
   constructor() {
     super('invalid_pickup_code', 'Pickup code must be exactly 6 digits');

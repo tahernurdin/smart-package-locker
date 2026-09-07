@@ -9,7 +9,6 @@ import {
   NoSuitableLockerError,
   PackageAlreadyStoredError,
   PackageNotFoundError,
-  PickupCodeCollisionError,
 } from '../domain/errors.js';
 import { Package } from '../domain/package.entity.js';
 import type {
@@ -153,16 +152,6 @@ describe('StorePackageService', () => {
     expect(stored.pickupCodeHash).not.toContain('482913');
     expect(stored.storedAt.toISOString()).toBe('2026-06-02T00:00:00.000Z');
     expect(stored.assignment?.storedByAgent).toBe('agent-9');
-  });
-
-  it('retries a pickup-code collision, then succeeds', async () => {
-    const repo = new FakePackageRepo();
-    await repo.save(registeredPackage('SMALL'));
-    repo.freeLockers = [free('s', 'S-01', 'SMALL')];
-    repo.reserveFailures = [new PickupCodeCollisionError()];
-
-    const result = await service(repo).store({ packageId: 'pkg-1' });
-    expect(result.status).toBe('STORED');
   });
 
   it('retries a lost allocation race, then succeeds', async () => {
