@@ -1,6 +1,6 @@
 # Task 16 — Tiered storage-fee calculator + policy
 
-**Level:** 3 · **Depends on:** 15 · **Status:** Not started
+**Level:** 3 · **Depends on:** 15 · **Status:** Done
 
 ## Goal
 
@@ -87,3 +87,7 @@ Worked examples (SMALL: `[0,1)=0 [1,3)=600 [3,6)=800 [6,∞)=1000`):
 - [ ] Policy unit test (fake rate repo): delegates with `asOf = storedAt`; throws when the repo
   returns `[]`.
 - [ ] `npm run lint` / `npm run build` / `npm run test` green.
+
+> Deviation: the `packages.module` rebinding (planned for Task 17) was pulled into this task so
+> every commit builds — deleting `FlatZeroStorageFeePolicy` without rebinding would break the
+> module. Task 17 is now purely e2e + seed test + docs.
