@@ -1,6 +1,11 @@
 # Task 01 — Project infrastructure & tooling
 
-**Level:** 1 · **Depends on:** — · **Status:** Not started
+**Level:** 1 · **Depends on:** — · **Status:** Done
+
+> Deviation from plan: also added `class-validator` + `class-transformer` — required by
+> `ValidationPipe` and the DTO validation used from Task 05 on. Config is a hand-written typed
+> loader (`src/shared/config/configuration.ts`) layered on `@nestjs/config` for `.env` loading.
+> `mysql:8.4` image confirmed working.
 
 ## Goal
 
