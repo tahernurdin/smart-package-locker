@@ -21,9 +21,10 @@ export interface PackageProps {
 }
 
 /**
- * The parcel. Registered upstream against a known customer, then dropped by an
- * agent (`storeInLocker`), then collected (`retrieve`). Aggregate root; owns its
- * current `LockerAssignment`. Immutable — transitions return a new instance.
+ * The parcel. Registered against a `customerId` (an opaque reference owned by an
+ * upstream customer service), then dropped by an agent (`storeInLocker`), then
+ * collected (`retrieve`). Aggregate root; owns its current `LockerAssignment`.
+ * Immutable — transitions return a new instance.
  */
 export class Package {
   readonly id: string;

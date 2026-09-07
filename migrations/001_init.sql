@@ -40,19 +40,13 @@ CREATE TABLE IF NOT EXISTS locker (
   CONSTRAINT chk_locker_size   CHECK (size_code IN ('SMALL', 'MEDIUM', 'LARGE'))
 );
 
-CREATE TABLE IF NOT EXISTS customer (
-  id         CHAR(36)     NOT NULL,
-  name       VARCHAR(120) NOT NULL,
-  email      VARCHAR(255) NULL,
-  phone      VARCHAR(40)  NULL,
-  created_at DATETIME(6)  NOT NULL,
-  PRIMARY KEY (id),
-  CONSTRAINT chk_customer_has_contact CHECK (email IS NOT NULL OR phone IS NOT NULL)
-);
-
--- The parcel. Registered upstream (order / carrier feed) against a known
--- customer, then dropped by an agent, then collected. The storage episode lives
--- in locker_assignment.
+-- The parcel. Registered (order / carrier feed) against a customer_id, then
+-- dropped by an agent, then collected. The storage episode lives in
+-- locker_assignment.
+--
+-- customer_id is an opaque reference to a customer owned by a separate customer
+-- service: no local `customer` table, no FK. Creating / updating / notifying
+-- customers (incl. delivering the pickup code) is out of scope per the brief.
 CREATE TABLE IF NOT EXISTS package (
   id           CHAR(36)     NOT NULL,
   customer_id  CHAR(36)     NOT NULL,
@@ -63,7 +57,6 @@ CREATE TABLE IF NOT EXISTS package (
   updated_at   DATETIME(6)  NOT NULL,
   PRIMARY KEY (id),
   KEY ix_package_customer (customer_id, created_at),
-  CONSTRAINT fk_package_customer FOREIGN KEY (customer_id) REFERENCES customer (id),
   CONSTRAINT chk_package_size   CHECK (size_code IN ('SMALL', 'MEDIUM', 'LARGE')),
   CONSTRAINT chk_package_status CHECK (status IN ('REGISTERED', 'STORED', 'RETRIEVED'))
 );

@@ -8,6 +8,17 @@ Built with NestJS + MySQL in a layered/clean architecture. See
 [`CLAUDE.md`](CLAUDE.md) for the engineering conventions. Work is tracked as task specs under
 [`tasks/`](tasks/).
 
+## Assumptions
+
+- **Customer identity is owned by an upstream customer service.** A package is registered against a
+  `customerId` this service is given; it stores that reference and never resolves it. Creating,
+  updating and notifying customers — including delivering the pickup code by SMS/email — are out of
+  scope per the brief, so there is no `customer` table and no `/customers` endpoint.
+- **Retrieval is authorized by possession** (locker id + pickup code). The `CUSTOMER` role only
+  gates the route; no customer identity is checked.
+- **A single locker station.** The schema models `locker_station` because the brief frames lockers
+  as living inside stations, but only the seeded default station is exercised.
+
 ## Status
 
 | Level | Scope | State |
@@ -68,12 +79,15 @@ done
 # Operator: list lockers with availability + station (optional ?stationId=<uuid>)
 curl -s localhost:3000/lockers -H "authorization: Bearer $OP"
 
-# Agent: store a package — assigned the smallest locker that fits
-STORED=$(curl -sXPOST localhost:3000/packages -H "authorization: Bearer $AGENT" \
+# Agent: register the parcel against a customerId (issued by the upstream customer service)
+PKG=$(curl -sXPOST localhost:3000/packages -H "authorization: Bearer $AGENT" \
   -H 'content-type: application/json' \
-  -d '{"size":"SMALL","customer":{"name":"Jo","email":"jo@example.com"}}')
+  -d '{"size":"SMALL","customerId":"11111111-1111-4111-8111-111111111111"}' | jq -r .packageId)
+
+# Agent: drop it in a locker — assigned the smallest locker that fits
+STORED=$(curl -sXPOST "localhost:3000/packages/$PKG/store" -H "authorization: Bearer $AGENT")
 echo "$STORED"
-# {"packageId":"…","lockerId":"…","lockerCode":"A-SMALL","pickupCode":"482913"}
+# {"packageId":"…","lockerId":"…","lockerCode":"A-SMALL","pickupCode":"482913","status":"STORED"}
 
 # Customer: retrieve it with the locker id + pickup code
 CUSTOMER=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
@@ -100,7 +114,8 @@ all three, so nothing leaks).
 | `POST` | `/auth/dev-token` | — (dev only) | Mint a token for `{ role }` |
 | `POST` | `/lockers` | Operator | Create a locker `{ code, size, stationId? }` |
 | `GET` | `/lockers` | Operator | List lockers (`FREE`/`OCCUPIED` + station); optional `?stationId=<uuid>` |
-| `POST` | `/packages` | Agent | Store `{ size, customer{name,email?,phone?}, trackingRef? }` |
+| `POST` | `/packages` | Agent | Register a parcel `{ size, customerId, trackingRef? }` → `{ packageId, status }` |
+| `POST` | `/packages/:id/store` | Agent | Drop it in the smallest fitting locker → `{ lockerId, lockerCode, pickupCode, status }` |
 | `POST` | `/packages/retrieve` | Customer | Retrieve `{ lockerId, pickupCode }` — opens the locker, returns the fee |
 
 Each `GET /lockers` row:
@@ -170,10 +185,9 @@ npx vitest run -t "assigns the smallest locker that fits"
 src/
   shared/       config, database (pool + migrator), clock, id, pickup-code, errors, auth
   lockers/      domain / application / infrastructure / interface  (+ module)
-  customers/    domain / application / infrastructure              (+ module)
   packages/     domain / application / infrastructure / interface  (+ module)
 migrations/     *.sql, applied in order and tracked in schema_migrations
-tasks/          per-task specs (Level 1: 01–08, Level 2: 09–12)
+tasks/          per-task specs (Level 1: 01–08, Level 2: 09–12, L3: 15–17, split + L4: 18–20)
 ```
 
 Dependencies point inward: HTTP → application → domain; infrastructure implements domain ports and

@@ -37,7 +37,6 @@ describe('Level 2 — retrieval (e2e)', () => {
     await pool.query('DELETE FROM locker_assignment');
     await pool.query('DELETE FROM package');
     await pool.query('DELETE FROM locker');
-    await pool.query('DELETE FROM customer');
   });
 
   afterAll(async () => {
@@ -51,21 +50,14 @@ describe('Level 2 — retrieval (e2e)', () => {
     return res.body.token as string;
   }
 
-  async function createCustomer(agent: string): Promise<string> {
-    const res = await http()
-      .post('/customers')
-      .set('authorization', `Bearer ${agent}`)
-      .send({ name: 'Jo', email: `jo-${Math.random().toString(36).slice(2)}@x.com` })
-      .expect(201);
-    return res.body.customerId as string;
-  }
+  // A customer id as it would arrive from the upstream customer service.
+  const CUSTOMER_ID = '11111111-1111-4111-8111-111111111111';
 
   async function registerAndStore(agent: string, size: string, code = 'A-01') {
-    const customerId = await createCustomer(agent);
     const registered = await http()
       .post('/packages')
       .set('authorization', `Bearer ${agent}`)
-      .send({ size, customerId })
+      .send({ size, customerId: CUSTOMER_ID })
       .expect(201);
     const stored = await http()
       .post(`/packages/${registered.body.packageId}/store`)

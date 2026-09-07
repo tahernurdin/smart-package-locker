@@ -56,7 +56,6 @@ describe('Level 3 — storage fees (e2e)', () => {
     await pool.query('DELETE FROM locker_assignment');
     await pool.query('DELETE FROM package');
     await pool.query('DELETE FROM locker');
-    await pool.query('DELETE FROM customer');
   });
 
   afterAll(async () => {
@@ -70,21 +69,19 @@ describe('Level 3 — storage fees (e2e)', () => {
     return res.body.token as string;
   }
 
+  // A customer id as it would arrive from the upstream customer service.
+  const CUSTOMER_ID = '11111111-1111-4111-8111-111111111111';
+
   async function store(size: string, code: string) {
     await http()
       .post('/lockers')
       .set('authorization', `Bearer ${tokens.operator}`)
       .send({ code, size })
       .expect(201);
-    const customer = await http()
-      .post('/customers')
-      .set('authorization', `Bearer ${tokens.agent}`)
-      .send({ name: 'Jo', email: `jo-${code}@example.com` })
-      .expect(201);
     const registered = await http()
       .post('/packages')
       .set('authorization', `Bearer ${tokens.agent}`)
-      .send({ size, customerId: customer.body.customerId })
+      .send({ size, customerId: CUSTOMER_ID })
       .expect(201);
     const res = await http()
       .post(`/packages/${registered.body.packageId}/store`)

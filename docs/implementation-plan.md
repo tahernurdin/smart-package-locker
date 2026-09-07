@@ -48,10 +48,10 @@ src/
              application (CreateLockerService, ListLockersService)
              infrastructure (MysqlLockerRepository)
              interface (LockersController, DTOs)            + lockers.module.ts
-  customers/ domain + infrastructure only (find-or-create by contact; no controller)
-  packages/  domain (Package entity, PickupCode VO, PackageRepository port,
-                     StorageFeePolicy port, errors)
-             application (StorePackageService, RetrievePackageService)
+  packages/  domain (Package aggregate + LockerAssignment, PickupCode VO,
+                     PackageRepository port, StorageFeePolicy port, errors)
+             application (RegisterPackageService, StorePackageService,
+                          RetrievePackageService)
              infrastructure (MysqlPackageRepository, MysqlStorageRateRepository,
                              TieredStorageFeePolicy)
              interface (PackagesController, DTOs)            + packages.module.ts
@@ -60,6 +60,12 @@ src/
 Application services inject repository **interfaces** bound via tokens
 (`{ provide: LOCKER_REPOSITORY, useClass: MysqlLockerRepository }`). Domain is `@nestjs/*`-free.
 
+**Customer identity is out of scope.** A package carries a `customerId` — an opaque reference
+issued by an upstream customer service. This service persists it and never resolves it; there is no
+`customer` table, no FK, and no `/customers` endpoint. Delivering the pickup code (SMS/email) is
+likewise out of scope per the brief, and retrieval is authorized by possession (locker id + pickup
+code), so no customer attribute is ever read.
+
 ## Endpoints
 
 | Method | Path | Role | Result |
@@ -67,7 +73,8 @@ Application services inject repository **interfaces** bound via tokens
 | POST | `/auth/dev-token` | — (dev only) | `{ token }` for `{ role }` |
 | POST | `/lockers` | Operator | create locker `{ code, size, stationId? }` |
 | GET | `/lockers` | Operator | list: code, size, service status, `FREE`/`OCCUPIED`, active package summary |
-| POST | `/packages` | Agent | store `{ size, customer{name,email?,phone?}, trackingRef? }` → `{ packageId, lockerId, lockerCode, pickupCode }`; 409 `No suitable locker available` |
+| POST | `/packages` | Agent | register parcel `{ size, customerId, trackingRef? }` → `{ packageId, status: REGISTERED }` |
+| POST | `/packages/:id/store` | Agent | drop it → `{ packageId, lockerId, lockerCode, pickupCode, status: STORED }`; 409 `no_suitable_locker` / `package_already_stored` |
 | POST | `/packages/retrieve` | Customer | `{ lockerId, pickupCode }` → `{ packageId, retrievedAt, storageFee{amountMinor,currency} }`; 404/409 on invalid / already retrieved |
 | GET | `/health/live` | — | liveness — process only, no DB |
 | GET | `/health/ready` | — | readiness — `SELECT 1`, 503 when the DB is down |
@@ -107,9 +114,10 @@ rewrite a past charge.
    `POST /auth/dev-token`; boot token print; `npm run token`.
 5. **Lockers context** — domain + MySQL repo + `CreateLockerService` / `ListLockersService` +
    controller + unit tests.
-6. **Store package (L1 + L4)** — customer find-or-create; `Package` domain + repo
-   (generated-column unique, `SKIP LOCKED`, dup-entry mapping); `StorePackageService`
-   (smallest-fit + bounded retry); `POST /packages`; unit + concurrency tests.
+6. **Register + store package (L1 + L4)** — `Package` aggregate (`REGISTERED → STORED → RETRIEVED`)
+   + `LockerAssignment`; repo (generated-column unique, `SKIP LOCKED`, dup-entry mapping);
+   `RegisterPackageService` (`POST /packages`, opaque `customerId`) + `StorePackageService`
+   (`POST /packages/:id/store`, smallest-fit + bounded retry); unit + concurrency tests.
 7. **Retrieve package (L2 + L3)** — `StorageFeePolicy` + `TieredStorageFeePolicy` + rate repo;
    `RetrievePackageService` (validate → fee → snapshot → mark retrieved → free locker);
    `POST /packages/retrieve`; unit tests (band boundaries, first-day-free, open-ended, errors).

@@ -1,6 +1,11 @@
 # Task 19 — Split `package` into `package` + `locker_assignment`
 
-**Level:** refactor (absorbs Level 4) · **Status:** Done (e2e reshape pulled in to keep every commit green)
+**Level:** refactor (absorbs Level 4) · **Status:** Done — amended by task 21
+
+> **Amended by task 21.** The `package` / `locker_assignment` split stays. What changed: no
+> `fk_package_customer` (there is no `customer` table), and `RegisterPackageService` no longer
+> looks the customer up — `customerId` is an opaque upstream reference. `CustomerNotFoundError`
+> and the `CustomersModule` import are gone.
 
 ## Why
 
@@ -25,7 +30,7 @@ CREATE TABLE package (
   status       VARCHAR(20)  NOT NULL,          -- REGISTERED | STORED | RETRIEVED
   created_at   DATETIME(6)  NOT NULL,
   updated_at   DATETIME(6)  NOT NULL,
-  CONSTRAINT fk_package_customer FOREIGN KEY (customer_id) REFERENCES customer (id),
+  -- task 21: customer_id is an opaque upstream reference — no `customer` table, no FK
   CONSTRAINT chk_package_size   CHECK (size_code IN ('SMALL','MEDIUM','LARGE')),
   CONSTRAINT chk_package_status CHECK (status IN ('REGISTERED','STORED','RETRIEVED'))
 );
@@ -108,11 +113,9 @@ One aggregate: `Package` is the root, `LockerAssignment` a child entity it owns.
 ## Application + interface (`src/packages/`)
 
 - `register-package.service.ts` — `RegisterPackageService.register({ size, customerId, trackingRef })`:
-  `LockerSize.of`; `CustomerRepository.findById(customerId)` ⇒ `CustomerNotFoundError` (404) if
-  absent (customers are created via `POST /customers`, task 18 — **no inline customer, no
-  find-or-create here**); `Package.register`; `packages.save`. Returns
-  `{ packageId, status: 'REGISTERED' }`. `PackagesModule` imports `CustomersModule` for the
-  `CUSTOMER_REPOSITORY` token.
+  `LockerSize.of`; `Package.register`; `packages.save`. Returns `{ packageId, status: 'REGISTERED' }`.
+  (Task 21: `customerId` is an opaque upstream reference — not resolved, so no
+  `CustomerRepository` / `CustomerNotFoundError` / `CustomersModule` import.)
 - `store-package.service.ts` — `StorePackageService.store({ packageId, agentId, stationId? })`:
   `packages.findById` ⇒ `PackageNotFoundError`; bounded retry loop (`MAX_ATTEMPTS = 3`): generate
   pickup code, `pkg.storeInLocker(...)` (in-memory guard), `reserveLockerAndStore(...)`; retry on
@@ -128,8 +131,8 @@ One aggregate: `Package` is the root, `LockerAssignment` a child entity it owns.
     → 201 `{ packageId, status }`.
   - `POST /packages/:id/store` `@Auth(AGENT)` → 200 `{ packageId, lockerId, lockerCode, pickupCode, status }`.
   - `POST /packages/retrieve` `@Auth(CUSTOMER)` → unchanged.
-- `packages.module.ts` — add `RegisterPackageService`, import `CustomersModule`; drop the direct
-  `FindOrCreateCustomerService` use in the store path.
+- `packages.module.ts` — add `RegisterPackageService`. (Task 21 removed the `CustomersModule`
+  import.)
 - `dto/register-package.dto.ts` — `size` (`@IsIn`), `customerId` (`@IsUUID`), `trackingRef?`
   (string, ≤120). The old nested-customer DTO is removed.
 - `lockers` — `ListLockersService` / `MysqlLockerRepository.listWithOccupancy`: `LEFT JOIN
@@ -140,8 +143,8 @@ One aggregate: `Package` is the root, `LockerAssignment` a child entity it owns.
 
 `package.entity.spec.ts` (register → store → retrieve transitions + guards),
 `locker-assignment.entity.spec.ts` (new), `store-package.service.spec.ts`,
-`register-package.service.spec.ts` (new — validates `customerId` exists, throws
-`CustomerNotFoundError`), `retrieve-package.service.spec.ts`,
+`register-package.service.spec.ts` (new — registers against a `customerId`; task 21 dropped the
+"customer exists" check), `retrieve-package.service.spec.ts`,
 `list-lockers.service.spec.ts` / `create-locker.service.spec.ts` fakes (drop
 `findAvailableSmallestFit`, add the new port methods).
 

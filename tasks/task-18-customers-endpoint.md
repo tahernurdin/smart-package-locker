@@ -1,6 +1,10 @@
 # Task 18 — `POST /customers` endpoint + `CustomerRepository.findById`
 
-**Level:** refactor · **Depends on:** 17 · **Status:** Done
+**Level:** refactor · **Depends on:** 17 · **Status:** Reverted (see task 21)
+
+> **Reverted by task 21.** `POST /customers` and the whole `customers/` module are removed —
+> customer identity belongs to an upstream service. `POST /packages` takes an opaque `customerId`
+> that is stored but never resolved. Kept for history.
 
 ## Why
 

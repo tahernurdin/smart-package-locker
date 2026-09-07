@@ -10,10 +10,14 @@ import { runMigrations } from '../src/shared/database/migrator.js';
 import { MYSQL_POOL } from '../src/shared/database/mysql.pool.js';
 
 /**
- * Full Level 1 flow against a real MySQL: create customer -> register package ->
- * store it -> list lockers. Run: `docker compose up -d mysql`, then
- * `npm run test:e2e`.
+ * Full Level 1 flow against a real MySQL: register package -> store it -> list
+ * lockers. Run: `docker compose up -d mysql`, then `npm run test:e2e`.
  */
+
+// A customer id as it would arrive from the upstream customer service. This
+// system never resolves it, so any UUID is accepted.
+const CUSTOMER_ID = '11111111-1111-4111-8111-111111111111';
+
 describe('Level 1 (e2e)', () => {
   let app: INestApplication<App>;
   let pool: Pool;
@@ -41,7 +45,6 @@ describe('Level 1 (e2e)', () => {
     await pool.query('DELETE FROM locker_assignment');
     await pool.query('DELETE FROM package');
     await pool.query('DELETE FROM locker');
-    await pool.query('DELETE FROM customer');
   });
 
   afterAll(async () => {
@@ -62,19 +65,10 @@ describe('Level 1 (e2e)', () => {
       .send({ code, size });
   }
 
-  async function createCustomer(agent: string): Promise<string> {
-    const res = await http()
-      .post('/customers')
-      .set('authorization', `Bearer ${agent}`)
-      .send({ name: 'Jo', email: `jo-${Math.random().toString(36).slice(2)}@example.com` })
-      .expect(201);
-    return res.body.customerId as string;
-  }
-
   async function registerPackage(
     agent: string,
     size: string,
-    customerId: string,
+    customerId: string = CUSTOMER_ID,
   ): Promise<string> {
     const res = await http()
       .post('/packages')
@@ -87,7 +81,6 @@ describe('Level 1 (e2e)', () => {
   it('creates lockers, stores by smallest fit, and reports occupancy', async () => {
     const op = await token('OPERATOR');
     const agent = await token('AGENT');
-    const customerId = await createCustomer(agent);
 
     await createLocker(op, 'A-S', 'SMALL').expect(201);
     await createLocker(op, 'A-M', 'MEDIUM').expect(201);
@@ -109,7 +102,7 @@ describe('Level 1 (e2e)', () => {
     });
 
     // SMALL package -> the SMALL locker
-    const p1 = await registerPackage(agent, 'SMALL', customerId);
+    const p1 = await registerPackage(agent, 'SMALL');
     const first = await http()
       .post(`/packages/${p1}/store`)
       .set('authorization', `Bearer ${agent}`)
@@ -127,7 +120,7 @@ describe('Level 1 (e2e)', () => {
     ).toMatchObject({ availability: 'OCCUPIED', activePackageId: p1 });
 
     // SMALL again, SMALL locker taken -> MEDIUM
-    const p2 = await registerPackage(agent, 'SMALL', customerId);
+    const p2 = await registerPackage(agent, 'SMALL');
     const second = await http()
       .post(`/packages/${p2}/store`)
       .set('authorization', `Bearer ${agent}`)
@@ -135,7 +128,7 @@ describe('Level 1 (e2e)', () => {
     expect(second.body.lockerCode).toBe('A-M');
 
     // LARGE -> LARGE
-    const p3 = await registerPackage(agent, 'LARGE', customerId);
+    const p3 = await registerPackage(agent, 'LARGE');
     const third = await http()
       .post(`/packages/${p3}/store`)
       .set('authorization', `Bearer ${agent}`)
@@ -143,7 +136,7 @@ describe('Level 1 (e2e)', () => {
     expect(third.body.lockerCode).toBe('A-L');
 
     // Every locker full -> 409
-    const p4 = await registerPackage(agent, 'SMALL', customerId);
+    const p4 = await registerPackage(agent, 'SMALL');
     const full = await http()
       .post(`/packages/${p4}/store`)
       .set('authorization', `Bearer ${agent}`)
@@ -151,14 +144,15 @@ describe('Level 1 (e2e)', () => {
     expect(full.body.code).toBe('no_suitable_locker');
   });
 
-  it('rejects registering against an unknown customer, and storing an unknown package', async () => {
+  it('registers against any customer id (owned upstream) but 404s storing an unknown package', async () => {
     const agent = await token('AGENT');
 
+    // customer_id is not resolved against a local table — any UUID is accepted.
     await http()
       .post('/packages')
       .set('authorization', `Bearer ${agent}`)
       .send({ size: 'SMALL', customerId: '0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d' })
-      .expect(404);
+      .expect(201);
 
     await http()
       .post('/packages/0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/store')
@@ -169,10 +163,9 @@ describe('Level 1 (e2e)', () => {
   it('rejects storing the same package twice', async () => {
     const op = await token('OPERATOR');
     const agent = await token('AGENT');
-    const customerId = await createCustomer(agent);
     await createLocker(op, 'D-1', 'MEDIUM').expect(201);
 
-    const pkg = await registerPackage(agent, 'MEDIUM', customerId);
+    const pkg = await registerPackage(agent, 'MEDIUM');
     await http()
       .post(`/packages/${pkg}/store`)
       .set('authorization', `Bearer ${agent}`)
@@ -217,18 +210,17 @@ describe('Level 1 (e2e)', () => {
 
     await http()
       .post('/packages')
-      .send({ size: 'SMALL', customerId: DEFAULT_STATION_ID })
+      .send({ size: 'SMALL', customerId: CUSTOMER_ID })
       .expect(401);
   });
 
   it('never double-books a locker under concurrent stores', async () => {
     const op = await token('OPERATOR');
     const agent = await token('AGENT');
-    const customerId = await createCustomer(agent);
     await createLocker(op, 'ONLY-1', 'SMALL').expect(201);
 
     const packageIds = await Promise.all(
-      Array.from({ length: 8 }, () => registerPackage(agent, 'SMALL', customerId)),
+      Array.from({ length: 8 }, () => registerPackage(agent, 'SMALL')),
     );
 
     const statuses = await Promise.all(

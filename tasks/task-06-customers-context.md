@@ -1,6 +1,12 @@
 # Task 06 — Customers context
 
-**Level:** 1 · **Depends on:** 02, 03 · **Status:** Done
+**Level:** 1 · **Depends on:** 02, 03 · **Status:** Reverted (see task 21)
+
+> **Reverted by task 21.** Customer management is not in the brief — the pickup-code notification
+> that would need contact details is explicitly out of scope, and retrieval is by possession. The
+> `customers/` module, the `customer` table and its FK are removed; a package now carries a
+> `customerId` that is an opaque reference to an upstream customer service, persisted and never
+> resolved. This task (and task 18) are kept for history.
 
 ## Goal
 

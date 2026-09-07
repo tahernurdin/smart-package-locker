@@ -74,23 +74,12 @@ CREATE INDEX locker_station_status_idx
 
 
 -- ---------------------------------------------------------------------------
--- customer
---
--- Contact details exist because the pickup code is assumed to be delivered by
--- an external notification system (SMS/email), which is out of scope here.
--- ---------------------------------------------------------------------------
-CREATE TABLE customer (
-    id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    name        text NOT NULL,
-    email       text,
-    phone       text,
-    created_at  timestamptz NOT NULL DEFAULT now(),
-    CONSTRAINT customer_has_contact CHECK (email IS NOT NULL OR phone IS NOT NULL)
-);
-
-
--- ---------------------------------------------------------------------------
 -- package
+--
+-- customer_id is an opaque reference to a customer owned by a separate customer
+-- service - there is no local customer table and no FK. The pickup code is
+-- assumed to be delivered to that customer by an external notification system
+-- (SMS/email); both are out of scope here.
 --
 -- One row is one occupancy episode: a package assigned to a locker, bracketed
 -- by stored_at and retrieved_at. Rows are never deleted on pickup - the history
@@ -111,7 +100,7 @@ CREATE TABLE customer (
 CREATE TABLE package (
     id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     locker_id           uuid NOT NULL REFERENCES locker(id) ON DELETE RESTRICT,
-    customer_id         uuid NOT NULL REFERENCES customer(id) ON DELETE RESTRICT,
+    customer_id         uuid NOT NULL,
     size_code           text NOT NULL REFERENCES locker_size(code) ON DELETE RESTRICT,
     pickup_code_hash    text NOT NULL,
     tracking_ref        text,

@@ -5,13 +5,13 @@
 # create resources are named (# @name ...) so later blocks can reuse
 # their responses.
 #
-# Status: health, auth, lockers, store, and retrieve are all implemented
-# (Levels 1–3). The storage fee in the retrieve response is real now — it's 0
-# only because a static request file picks up the package the same day; the
-# tiered per-day rates are exercised in test/level3.e2e-spec.ts (which fakes the
-# clock).
+# Status: health, auth, lockers, register, store, and retrieve are all
+# implemented (Levels 1–3). The storage fee in the retrieve response is real
+# now — it's 0 only because a static request file picks up the package the same
+# day; the tiered per-day rates are exercised in test/level3.e2e-spec.ts (which
+# fakes the clock).
 #
-# Suggested order: mint tokens → create lockers → list → store → retrieve.
+# Suggested order: mint tokens → create lockers → list → register → store → retrieve.
 
 @baseUrl = http://localhost:3000
 
@@ -108,51 +108,59 @@ Content-Type: application/json
 GET {{baseUrl}}/lockers
 
 ###############################################################################
-# Packages — store (role: AGENT)
+# Packages — register + store (role: AGENT)
+#
+# customerId is an opaque reference issued by an upstream customer service — this
+# API stores it and never resolves it. Registration is the parcel record; store
+# is the physical drop that allocates a locker and mints the pickup code.
 ###############################################################################
 
-### Store a package for a customer (smallest fitting locker is chosen)
-# @name storePackage
+### Register a parcel against a customerId
+# @name registerPackage
 POST {{baseUrl}}/packages
 Authorization: Bearer {{agent}}
 Content-Type: application/json
 
 {
   "size": "SMALL",
-  "customer": {
-    "name": "Jane Doe",
-    "email": "jane@example.com",
-    "phone": "+61400000000"
-  },
+  "customerId": "11111111-1111-4111-8111-111111111111",
   "trackingRef": "TRK-12345"
 }
+
+### Package id captured from the register response
+@packageId = {{registerPackage.response.body.packageId}}
+
+### Store it — the smallest fitting locker is chosen
+# @name storePackage
+POST {{baseUrl}}/packages/{{packageId}}/store
+Authorization: Bearer {{agent}}
 
 ### Values captured from the store response (used by retrieve below)
 @lockerId = {{storePackage.response.body.lockerId}}
 @pickupCode = {{storePackage.response.body.pickupCode}}
 
-### Store a LARGE package
+### Register a LARGE parcel
 POST {{baseUrl}}/packages
 Authorization: Bearer {{agent}}
 Content-Type: application/json
 
 {
   "size": "LARGE",
-  "customer": { "name": "John Smith" }
+  "customerId": "22222222-2222-4222-8222-222222222222"
 }
 
-### Negative: store as CUSTOMER → 403
+### Negative: register as CUSTOMER → 403
 POST {{baseUrl}}/packages
 Authorization: Bearer {{customer}}
 Content-Type: application/json
 
-{ "size": "SMALL", "customer": { "name": "Nobody" } }
+{ "size": "SMALL", "customerId": "11111111-1111-4111-8111-111111111111" }
 
-### Negative: store with no token → 401
+### Negative: register with no token → 401
 POST {{baseUrl}}/packages
 Content-Type: application/json
 
-{ "size": "SMALL", "customer": { "name": "Nobody" } }
+{ "size": "SMALL", "customerId": "11111111-1111-4111-8111-111111111111" }
 
 ###############################################################################
 # Packages — retrieve (role: CUSTOMER; authorized by locker id + pickup code)

@@ -1,28 +1,9 @@
-import { Customer } from '../../customers/domain/customer.entity.js';
-import type {
-  CustomerContact,
-  CustomerRepository,
-} from '../../customers/domain/customer.repository.js';
-import { CustomerNotFoundError } from '../../customers/domain/errors.js';
 import { InvalidLockerSizeError } from '../../lockers/domain/errors.js';
 import type { Clock } from '../../shared/clock/clock.js';
 import type { IdGenerator } from '../../shared/id/id-generator.js';
 import { Package } from '../domain/package.entity.js';
 import type { PackageRepository } from '../domain/package.repository.js';
 import { RegisterPackageService } from './register-package.service.js';
-
-class FakeCustomerRepo implements CustomerRepository {
-  readonly customers = new Map<string, Customer>();
-  async findById(id: string) {
-    return this.customers.get(id) ?? null;
-  }
-  async findByContact(_c: CustomerContact) {
-    return null;
-  }
-  async save(customer: Customer) {
-    this.customers.set(customer.id, customer);
-  }
-}
 
 class FakePackageRepo implements PackageRepository {
   readonly saved: Package[] = [];
@@ -49,26 +30,15 @@ function idGen(): IdGenerator {
 }
 
 function build() {
-  const customers = new FakeCustomerRepo();
-  customers.customers.set(
-    'cust-1',
-    Customer.register({
-      id: 'cust-1',
-      name: 'Jo',
-      email: 'jo@example.com',
-      now: clock.now(),
-    }),
-  );
   const packages = new FakePackageRepo();
   return {
-    customers,
     packages,
-    service: new RegisterPackageService(packages, customers, idGen(), clock),
+    service: new RegisterPackageService(packages, idGen(), clock),
   };
 }
 
 describe('RegisterPackageService', () => {
-  it('registers a package against an existing customer', async () => {
+  it('registers a package against the given customer id', async () => {
     const { service, packages } = build();
 
     const result = await service.register({
@@ -84,15 +54,16 @@ describe('RegisterPackageService', () => {
     expect(packages.saved[0].createdAt).toEqual(clock.now());
   });
 
-  it('throws CustomerNotFoundError for an unknown customer', async () => {
+  it('does not resolve the customer id (owned by an upstream service)', async () => {
     const { service, packages } = build();
-    await expect(
-      service.register({ size: 'SMALL', customerId: 'ghost' }),
-    ).rejects.toThrow(CustomerNotFoundError);
-    expect(packages.saved).toHaveLength(0);
+
+    await service.register({ size: 'SMALL', customerId: 'any-external-id' });
+
+    expect(packages.saved).toHaveLength(1);
+    expect(packages.saved[0].customerId).toBe('any-external-id');
   });
 
-  it('rejects an unknown size before touching the repositories', async () => {
+  it('rejects an unknown size before touching the repository', async () => {
     const { service, packages } = build();
     await expect(
       service.register({ size: 'HUGE', customerId: 'cust-1' }),

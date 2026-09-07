@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { CustomersModule } from '../customers/customers.module.js';
 import { LockersModule } from '../lockers/lockers.module.js';
 import { RegisterPackageService } from './application/register-package.service.js';
 import { RetrievePackageService } from './application/retrieve-package.service.js';
@@ -13,7 +12,7 @@ import { TieredStorageFeePolicy } from './infrastructure/tiered-storage-fee.poli
 import { PackagesController } from './interface/packages.controller.js';
 
 @Module({
-  imports: [LockersModule, CustomersModule],
+  imports: [LockersModule],
   controllers: [PackagesController],
   providers: [
     RegisterPackageService,

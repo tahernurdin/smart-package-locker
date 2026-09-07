@@ -4,7 +4,7 @@
 - **Level 2 — Package retrieval and locker management** (tasks 09–12) — done
 - **Refactors** (tasks 13–14) — done
 - **Level 3 — Extended storage charges** (tasks 15–17) — done
-- **Package lifecycle split + Level 4 — concurrent stores** (tasks 18–20)
+- **Package lifecycle split + Level 4 — concurrent stores** (tasks 18–21)
 
 See `../docs/implementation-plan.md` for the overall design and decisions.
 
@@ -31,7 +31,7 @@ concurrency hardening — `FOR UPDATE SKIP LOCKED` + retry (L4).
 | 03 | [Shared kernel](task-03-shared-kernel.md) | 01 | ✅ Done |
 | 04 | [Auth — dummy JWT per role](task-04-auth.md) | 01, 03 | ✅ Done |
 | 05 | [Lockers context](task-05-lockers-context.md) | 02, 03, 04 | ✅ Done |
-| 06 | [Customers context](task-06-customers-context.md) | 02, 03 | ✅ Done |
+| 06 | [Customers context](task-06-customers-context.md) | 02, 03 | ↩ Reverted (task 21) |
 | 07 | [Store package](task-07-store-package.md) | 03, 04, 05, 06 | ✅ Done |
 | 08 | [Level 1 end-to-end + docs](task-08-level1-e2e.md) | 05, 07 | ✅ Done |
 
@@ -84,10 +84,13 @@ So L3 is: implement the real tiered calculation behind the existing seam and swa
 
 ## Package lifecycle split + Level 4: Concurrent Stores
 
-A package is registered upstream (order / carrier feed) against an already-known customer, and
-*then* dropped by an agent. So: a customer is created via `POST /customers`; the model splits into
-`package` (parcel — `customer_id`, size, tracking ref, `REGISTERED → STORED → RETRIEVED`) and
-`locker_assignment` (the storage episode — locker, `stored_at`, pickup code, fee).
+A package is registered (order / carrier feed) against a `customerId`, and *then* dropped by an
+agent. The model splits into `package` (parcel — `customer_id`, size, tracking ref,
+`REGISTERED → STORED → RETRIEVED`) and `locker_assignment` (the storage episode — locker,
+`stored_at`, pickup code, fee).
+
+`customerId` is an opaque reference to an upstream customer service (task 21) — no `customer` table,
+no FK, no `/customers` endpoint; customer management is not in the brief.
 
 The store-path rewrite builds in **Level 4**: allocate + insert the assignment in one transaction
 with `FOR UPDATE … SKIP LOCKED` (agents fan out to different lockers) + a bounded retry;
@@ -96,9 +99,10 @@ requirements are proven by `test/level4.e2e-spec.ts` in task 20.
 
 | # | Task | Depends on | Status |
 |---|---|---|---|
-| 18 | [`POST /customers` endpoint + `CustomerRepository.findById`](task-18-customers-endpoint.md) | 17 | ✅ Done |
-| 19 | [Split `package` into `package` + `locker_assignment`](task-19-package-locker-assignment-split.md) | 18 | ✅ Done |
-| 20 | [Lifecycle + Level 4 contention: e2e & docs](task-20-lifecycle-and-contention-e2e.md) | 19 | Not started |
+| 18 | [`POST /customers` endpoint + `CustomerRepository.findById`](task-18-customers-endpoint.md) | 17 | ↩ Reverted (task 21) |
+| 19 | [Split `package` into `package` + `locker_assignment`](task-19-package-locker-assignment-split.md) | 18 | ✅ Done (amended by task 21) |
+| 20 | [Lifecycle + Level 4 contention: e2e & docs](task-20-lifecycle-and-contention-e2e.md) | 19, 21 | Not started |
+| 21 | [Drop the customers module — `customerId` is an upstream reference](task-21-drop-customers-module.md) | 19 | ✅ Done |
 
 ## Conventions (all tasks)
 
