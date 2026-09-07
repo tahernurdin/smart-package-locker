@@ -1,4 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import type { Pool } from 'mysql2/promise';
+import { MYSQL_POOL } from '../shared/database/mysql.pool.js';
 
 export interface HealthStatus {
   status: 'ok';
@@ -6,14 +8,19 @@ export interface HealthStatus {
 }
 
 /**
- * Liveness probe. `status` is always `ok` while the process can answer; `db`
- * reflects connectivity.
- *
- * Task 02 replaces the stub below with a real `SELECT 1` against the pool.
+ * Liveness probe. `status` is `ok` while the process can answer; `db` reflects
+ * whether the pool can reach MySQL.
  */
 @Injectable()
 export class HealthService {
+  constructor(@Inject(MYSQL_POOL) private readonly pool: Pool) {}
+
   async check(): Promise<HealthStatus> {
-    return { status: 'ok', db: 'up' };
+    try {
+      await this.pool.query('SELECT 1');
+      return { status: 'ok', db: 'up' };
+    } catch {
+      return { status: 'ok', db: 'down' };
+    }
   }
 }

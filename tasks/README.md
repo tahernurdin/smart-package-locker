@@ -19,7 +19,7 @@ See `../docs/implementation-plan.md` for the overall design and decisions.
 | # | Task | Depends on | Status |
 |---|---|---|---|
 | 01 | [Project infrastructure & tooling](task-01-project-infra.md) | — | ✅ Done |
-| 02 | [Database connection & migrations](task-02-database-and-migrations.md) | 01 | Not started |
+| 02 | [Database connection & migrations](task-02-database-and-migrations.md) | 01 | ✅ Done |
 | 03 | [Shared kernel](task-03-shared-kernel.md) | 01 | Not started |
 | 04 | [Auth — dummy JWT per role](task-04-auth.md) | 01, 03 | Not started |
 | 05 | [Lockers context](task-05-lockers-context.md) | 02, 03, 04 | Not started |

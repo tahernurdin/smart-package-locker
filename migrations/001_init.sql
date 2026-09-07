@@ -1,0 +1,106 @@
+-- 001_init.sql  (MySQL 8.0.16+ / 8.4)
+-- MySQL-dialect port of the reference PostgreSQL schema (../001_init.sql).
+--
+-- Conventions
+--   * Money is BIGINT minor units (cents). Never floating point. Currency is
+--     single-valued and lives in application config.
+--   * Day ranges are half-open [from_day, to_day); to_day NULL means open-ended.
+--   * ids (CHAR(36) UUIDs) and DATETIME(6) values are always supplied by the
+--     application, never by DB defaults, so behaviour is deterministic in tests.
+--
+-- Differences from the PostgreSQL version
+--   * Partial unique indexes -> STORED generated columns that are NULL once the
+--     package is retrieved, with a plain UNIQUE over them.
+--   * EXCLUDE USING gist (no overlapping rate bands) -> covered by a seed test.
+--   * Postgres extensions / int4range -> dropped.
+
+CREATE TABLE IF NOT EXISTS locker_size (
+  code    VARCHAR(20) NOT NULL,
+  `rank`  INT         NOT NULL,
+  label   VARCHAR(50) NOT NULL,
+  PRIMARY KEY (code),
+  UNIQUE KEY uq_locker_size_rank (`rank`),
+  CONSTRAINT chk_locker_size_rank_positive CHECK (`rank` > 0)
+);
+
+CREATE TABLE IF NOT EXISTS locker_station (
+  id         CHAR(36)     NOT NULL,
+  name       VARCHAR(120) NOT NULL,
+  location   VARCHAR(255) NULL,
+  created_at DATETIME(6)  NOT NULL,
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS locker (
+  id         CHAR(36)    NOT NULL,
+  station_id CHAR(36)    NOT NULL,
+  code       VARCHAR(30) NOT NULL,
+  size_code  VARCHAR(20) NOT NULL,
+  status     VARCHAR(20) NOT NULL DEFAULT 'IN_SERVICE',
+  created_at DATETIME(6) NOT NULL,
+  updated_at DATETIME(6) NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_locker_code_per_station (station_id, code),
+  KEY ix_locker_station_status (station_id, status),
+  CONSTRAINT fk_locker_station FOREIGN KEY (station_id) REFERENCES locker_station (id),
+  CONSTRAINT fk_locker_size    FOREIGN KEY (size_code)  REFERENCES locker_size (code),
+  CONSTRAINT chk_locker_status CHECK (status IN ('IN_SERVICE', 'OUT_OF_SERVICE'))
+);
+
+CREATE TABLE IF NOT EXISTS customer (
+  id         CHAR(36)     NOT NULL,
+  name       VARCHAR(120) NOT NULL,
+  email      VARCHAR(255) NULL,
+  phone      VARCHAR(40)  NULL,
+  created_at DATETIME(6)  NOT NULL,
+  PRIMARY KEY (id),
+  CONSTRAINT chk_customer_has_contact CHECK (email IS NOT NULL OR phone IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS package (
+  id                CHAR(36)     NOT NULL,
+  locker_id         CHAR(36)     NOT NULL,
+  customer_id       CHAR(36)     NOT NULL,
+  size_code         VARCHAR(20)  NOT NULL,
+  pickup_code_hash  CHAR(64)     NOT NULL,
+  tracking_ref      VARCHAR(120) NULL,
+  stored_by_agent   VARCHAR(120) NULL,
+  stored_at         DATETIME(6)  NOT NULL,
+  retrieved_at      DATETIME(6)  NULL,
+  storage_fee_minor BIGINT       NULL,
+  -- NULL once retrieved, so the UNIQUE below only constrains *active* packages.
+  active_locker_id CHAR(36)
+    GENERATED ALWAYS AS (IF(retrieved_at IS NULL, locker_id, NULL)) STORED,
+  active_pickup_code_hash CHAR(64)
+    GENERATED ALWAYS AS (IF(retrieved_at IS NULL, pickup_code_hash, NULL)) STORED,
+  PRIMARY KEY (id),
+  -- THE core invariant: a locker holds at most one active package. Enforced here
+  -- so it holds under any request interleaving — a race yields ER_DUP_ENTRY.
+  UNIQUE KEY uq_one_active_package_per_locker (active_locker_id),
+  UNIQUE KEY uq_active_pickup_code (active_pickup_code_hash),
+  KEY ix_package_customer (customer_id, stored_at),
+  CONSTRAINT fk_package_locker   FOREIGN KEY (locker_id)   REFERENCES locker (id),
+  CONSTRAINT fk_package_customer FOREIGN KEY (customer_id) REFERENCES customer (id),
+  CONSTRAINT fk_package_size     FOREIGN KEY (size_code)   REFERENCES locker_size (code),
+  CONSTRAINT chk_package_retrieved_after_stored
+    CHECK (retrieved_at IS NULL OR retrieved_at >= stored_at),
+  CONSTRAINT chk_package_fee_iff_retrieved
+    CHECK ((retrieved_at IS NULL) = (storage_fee_minor IS NULL)),
+  CONSTRAINT chk_package_fee_non_negative
+    CHECK (storage_fee_minor IS NULL OR storage_fee_minor >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS storage_rate (
+  id             CHAR(36)    NOT NULL,
+  size_code      VARCHAR(20) NOT NULL,
+  from_day       INT         NOT NULL,
+  to_day         INT         NULL,
+  rate_minor     BIGINT      NOT NULL,
+  effective_from DATETIME(6) NOT NULL,
+  PRIMARY KEY (id),
+  KEY ix_storage_rate_lookup (size_code, effective_from),
+  CONSTRAINT fk_storage_rate_size FOREIGN KEY (size_code) REFERENCES locker_size (code),
+  CONSTRAINT chk_storage_rate_from_day_non_negative CHECK (from_day >= 0),
+  CONSTRAINT chk_storage_rate_band_ordered CHECK (to_day IS NULL OR to_day > from_day),
+  CONSTRAINT chk_storage_rate_non_negative CHECK (rate_minor >= 0)
+);

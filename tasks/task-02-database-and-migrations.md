@@ -1,6 +1,11 @@
 # Task 02 — Database connection & migrations
 
-**Level:** 1 · **Depends on:** 01 · **Status:** Not started
+**Level:** 1 · **Depends on:** 01 · **Status:** Done
+
+> `rank` is a reserved word in MySQL 8 → column is `` `rank` `` (backticked) in SQL.
+> `db:migrate` runs `nest build` first (compiled ESM + `.js` specifiers can't be run
+> straight from `.ts`). Verified against `mysql:8.4`: schema + seed applied on boot, re-run is
+> a no-op, duplicate active package → `ER_DUP_ENTRY`, CHECK constraints enforced.
 
 ## Goal
 

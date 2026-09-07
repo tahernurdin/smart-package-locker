@@ -1,0 +1,174 @@
+# Smart Package Locker — REST Client requests
+#
+# Use with the VS Code "REST Client" extension (humao.rest-client).
+# Click "Send Request" above each block. Requests that mint tokens or
+# create resources are named (# @name ...) so later blocks can reuse
+# their responses.
+#
+# Status: only `GET /health` exists today. The lockers / packages / auth
+# endpoints below land with tasks 04–08 (see tasks/README.md) — they are
+# here so the file is ready as those tasks merge.
+#
+# Suggested order: mint tokens → create lockers → list → store → retrieve.
+
+@baseUrl = http://localhost:3000
+
+###############################################################################
+# Health
+###############################################################################
+
+### Liveness + DB check (public)
+GET {{baseUrl}}/health
+
+###############################################################################
+# Auth — dev tokens (only when AUTH_DEV_TOKENS=true; 404 otherwise)
+###############################################################################
+
+### Mint an OPERATOR token
+# @name operatorToken
+POST {{baseUrl}}/auth/dev-token
+Content-Type: application/json
+
+{ "role": "OPERATOR" }
+
+### Mint an AGENT token
+# @name agentToken
+POST {{baseUrl}}/auth/dev-token
+Content-Type: application/json
+
+{ "role": "AGENT" }
+
+### Mint a CUSTOMER token
+# @name customerToken
+POST {{baseUrl}}/auth/dev-token
+Content-Type: application/json
+
+{ "role": "CUSTOMER" }
+
+### Tokens captured from the responses above
+@operator = {{operatorToken.response.body.token}}
+@agent = {{agentToken.response.body.token}}
+@customer = {{customerToken.response.body.token}}
+
+###############################################################################
+# Lockers (role: OPERATOR)
+###############################################################################
+
+### Create a SMALL locker
+# @name createSmallLocker
+POST {{baseUrl}}/lockers
+Authorization: Bearer {{operator}}
+Content-Type: application/json
+
+{ "code": "A-01", "size": "SMALL" }
+
+### Create a MEDIUM locker
+POST {{baseUrl}}/lockers
+Authorization: Bearer {{operator}}
+Content-Type: application/json
+
+{ "code": "A-02", "size": "MEDIUM" }
+
+### Create a LARGE locker
+POST {{baseUrl}}/lockers
+Authorization: Bearer {{operator}}
+Content-Type: application/json
+
+{ "code": "A-03", "size": "LARGE" }
+
+### Create a locker at an explicit station
+POST {{baseUrl}}/lockers
+Authorization: Bearer {{operator}}
+Content-Type: application/json
+
+{
+  "code": "B-01",
+  "size": "MEDIUM",
+  "stationId": "00000000-0000-0000-0000-000000000000"
+}
+
+### List all lockers with availability
+# @name listLockers
+GET {{baseUrl}}/lockers
+Authorization: Bearer {{operator}}
+
+### Negative: create a locker as AGENT → 403
+POST {{baseUrl}}/lockers
+Authorization: Bearer {{agent}}
+Content-Type: application/json
+
+{ "code": "X-99", "size": "SMALL" }
+
+### Negative: list lockers with no token → 401
+GET {{baseUrl}}/lockers
+
+###############################################################################
+# Packages — store (role: AGENT)
+###############################################################################
+
+### Store a package for a customer (smallest fitting locker is chosen)
+# @name storePackage
+POST {{baseUrl}}/packages
+Authorization: Bearer {{agent}}
+Content-Type: application/json
+
+{
+  "size": "SMALL",
+  "customer": {
+    "name": "Jane Doe",
+    "email": "jane@example.com",
+    "phone": "+61400000000"
+  },
+  "trackingRef": "TRK-12345"
+}
+
+### Values captured from the store response (used by retrieve below)
+@lockerId = {{storePackage.response.body.lockerId}}
+@pickupCode = {{storePackage.response.body.pickupCode}}
+
+### Store a LARGE package
+POST {{baseUrl}}/packages
+Authorization: Bearer {{agent}}
+Content-Type: application/json
+
+{
+  "size": "LARGE",
+  "customer": { "name": "John Smith" }
+}
+
+### Negative: store as CUSTOMER → 403
+POST {{baseUrl}}/packages
+Authorization: Bearer {{customer}}
+Content-Type: application/json
+
+{ "size": "SMALL", "customer": { "name": "Nobody" } }
+
+### Negative: store with no token → 401
+POST {{baseUrl}}/packages
+Content-Type: application/json
+
+{ "size": "SMALL", "customer": { "name": "Nobody" } }
+
+###############################################################################
+# Packages — retrieve (role: CUSTOMER; authorized by locker id + pickup code)
+###############################################################################
+
+### Retrieve the package stored above
+POST {{baseUrl}}/packages/retrieve
+Authorization: Bearer {{customer}}
+Content-Type: application/json
+
+{
+  "lockerId": "{{lockerId}}",
+  "pickupCode": "{{pickupCode}}"
+}
+
+### Retrieve with explicit values (fill these in by hand)
+POST {{baseUrl}}/packages/retrieve
+Authorization: Bearer {{customer}}
+Content-Type: application/json
+
+{
+  "lockerId": "REPLACE_WITH_LOCKER_ID",
+  "pickupCode": "000000"
+}
