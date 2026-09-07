@@ -96,7 +96,7 @@ requirements are proven by `test/level4.e2e-spec.ts` in task 20.
 
 | # | Task | Depends on | Status |
 |---|---|---|---|
-| 18 | [`POST /customers` endpoint + `CustomerRepository.findById`](task-18-customers-endpoint.md) | 17 | Not started |
+| 18 | [`POST /customers` endpoint + `CustomerRepository.findById`](task-18-customers-endpoint.md) | 17 | ✅ Done |
 | 19 | [Split `package` into `package` + `locker_assignment`](task-19-package-locker-assignment-split.md) | 18 | Not started |
 | 20 | [Lifecycle + Level 4 contention: e2e & docs](task-20-lifecycle-and-contention-e2e.md) | 19 | Not started |
 

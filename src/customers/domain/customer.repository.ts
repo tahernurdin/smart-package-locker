@@ -8,6 +8,7 @@ export interface CustomerContact {
 }
 
 export interface CustomerRepository {
+  findById(id: string): Promise<Customer | null>;
   /** Match on email first, then phone. Null when neither is supplied or found. */
   findByContact(contact: CustomerContact): Promise<Customer | null>;
   save(customer: Customer): Promise<void>;

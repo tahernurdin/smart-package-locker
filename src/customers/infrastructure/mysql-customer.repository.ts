@@ -11,6 +11,14 @@ import type {
 export class MysqlCustomerRepository implements CustomerRepository {
   constructor(@Inject(MYSQL_POOL) private readonly pool: Pool) {}
 
+  async findById(id: string): Promise<Customer | null> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT id, name, email, phone, created_at FROM customer WHERE id = :id LIMIT 1`,
+      { id },
+    );
+    return rows.length ? this.toCustomer(rows[0]) : null;
+  }
+
   async findByContact(contact: CustomerContact): Promise<Customer | null> {
     const email = contact.email?.trim() || null;
     const phone = contact.phone?.trim() || null;

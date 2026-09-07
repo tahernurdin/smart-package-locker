@@ -1,6 +1,6 @@
 # Task 18 — `POST /customers` endpoint + `CustomerRepository.findById`
 
-**Level:** refactor · **Depends on:** 17 · **Status:** Not started
+**Level:** refactor · **Depends on:** 17 · **Status:** Done
 
 ## Why
 

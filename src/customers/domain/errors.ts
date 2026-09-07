@@ -1,4 +1,7 @@
-import { ValidationDomainError } from '../../shared/errors/domain-error.js';
+import {
+  NotFoundDomainError,
+  ValidationDomainError,
+} from '../../shared/errors/domain-error.js';
 
 export class CustomerContactRequiredError extends ValidationDomainError {
   constructor() {
@@ -12,5 +15,11 @@ export class CustomerContactRequiredError extends ValidationDomainError {
 export class CustomerNameRequiredError extends ValidationDomainError {
   constructor() {
     super('customer_name_required', 'A customer needs a name');
+  }
+}
+
+export class CustomerNotFoundError extends NotFoundDomainError {
+  constructor(id: string) {
+    super('customer_not_found', `No customer with id ${id}`, { id });
   }
 }
