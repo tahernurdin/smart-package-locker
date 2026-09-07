@@ -4,7 +4,7 @@
 - **Level 2 — Package retrieval and locker management** (tasks 09–12) — done
 - **Refactors** (tasks 13–14) — done
 - **Level 3 — Extended storage charges** (tasks 15–17) — done
-- **Level 4 — Handling concurrent requests** (tasks 18–19)
+- **Package lifecycle split + Level 4 — concurrent stores** (tasks 18–19)
 
 See `../docs/implementation-plan.md` for the overall design and decisions.
 
@@ -82,21 +82,20 @@ So L3 is: implement the real tiered calculation behind the existing seam and swa
 | 16 | [Tiered storage-fee calculator + policy](task-16-tiered-storage-fee-policy.md) | 15 | ✅ Done |
 | 17 | [Wire the tiered policy + Level 3 e2e + docs](task-17-level3-e2e.md) | 16 | ✅ Done |
 
-## Level 4: Handling Concurrent Requests (optional)
+## Package lifecycle split + Level 4: Concurrent Stores
 
-Level 4 scope (from the brief): multiple agents storing at the same time — a locker goes to only
-one package, two requests never get the same locker, availability stays correct, and when requests
-outnumber lockers only the available ones are assigned (the rest get "no suitable locker").
-
-Correctness is **already** enforced by `uq_one_active_package_per_locker` (see the Level 1
-concurrency e2e). Level 4 adds fairness/efficiency under contention: allocate + insert in one
-transaction with `FOR UPDATE ... SKIP LOCKED` so agents fan out to different lockers, plus a
-bounded retry for the residual races.
+A package is registered upstream (order / carrier feed) and *then* dropped by an agent, so the
+model splits: `package` (parcel — customer, size, tracking ref, `REGISTERED → STORED → RETRIEVED`)
+and `locker_assignment` (the storage episode — locker, `stored_at`, pickup code, fee). This rewrites
+the store path, so **Level 4 concurrency handling is built in**: allocate + insert the assignment in
+one transaction with `FOR UPDATE … SKIP LOCKED` (agents fan out to different lockers) + a bounded
+retry; `uq_one_active_assignment_per_locker` stays the correctness backstop. Level 4's contention
+requirements are proven by `test/level4.e2e-spec.ts` in task 19.
 
 | # | Task | Depends on | Status |
 |---|---|---|---|
-| 18 | [Concurrency-safe allocation (transactional reserve-and-store)](task-18-concurrency-safe-allocation.md) | 17 | Not started |
-| 19 | [Level 4 contention e2e + docs](task-19-level4-e2e.md) | 18 | Not started |
+| 18 | [Split `package` into `package` + `locker_assignment`](task-18-package-locker-assignment-split.md) | 17 | Not started |
+| 19 | [Lifecycle + Level 4 contention: e2e & docs](task-19-lifecycle-and-contention-e2e.md) | 18 | Not started |
 
 ## Conventions (all tasks)
 
