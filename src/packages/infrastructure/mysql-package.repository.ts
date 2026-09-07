@@ -1,7 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Pool, ResultSetHeader, RowDataPacket } from 'mysql2/promise';
 import { LockerSize } from '../../lockers/domain/locker-size.js';
-import { isDuplicateEntryError } from '../../shared/database/mysql-errors.js';
+import {
+  duplicateEntryKey,
+  isDuplicateEntryError,
+} from '../../shared/database/mysql-errors.js';
 import { MYSQL_POOL } from '../../shared/database/mysql.pool.js';
 import { sizeOrderExpr } from '../../shared/database/size-order.js';
 import { withTransaction } from '../../shared/database/transaction.js';
@@ -114,18 +117,32 @@ export class MysqlPackageRepository implements PackageRepository {
           },
         );
       } catch (err) {
-        // uq_one_active_assignment_per_locker is the only unique key this insert
-        // can violate: another request claimed the locker after our SELECT.
-        if (isDuplicateEntryError(err)) throw new LockerJustTakenError();
+        // Two unique keys can reject this insert and they mean opposite things,
+        // so dispatch on the name — never on ER_DUP_ENTRY alone. Reading a
+        // package clash as LockerJustTakenError would burn all three store
+        // attempts before reporting a locker race that never happened.
+        if (isDuplicateEntryError(err)) {
+          const key = duplicateEntryKey(err) ?? '';
+          // This package already has an assignment: terminal, never retried.
+          if (key.includes('uq_one_assignment_per_package')) {
+            throw new PackageAlreadyStoredError();
+          }
+          // Same locker: another request claimed it after our SELECT. Retryable.
+          throw new LockerJustTakenError();
+        }
         throw err;
       }
 
-      const [res] = await conn.query<ResultSetHeader>(
+      // Unconditional by design. Reaching this line means the insert above
+      // succeeded, and uq_one_assignment_per_package lets it succeed only when
+      // the package has no assignment row at all. Every step past REGISTERED
+      // writes that row in this same transaction, so "no assignment row" and
+      // "status = REGISTERED" are one condition — already enforced above.
+      await conn.query(
         `UPDATE package SET status = 'STORED', updated_at = :updatedAt
-         WHERE id = :packageId AND status = 'REGISTERED'`,
+         WHERE id = :packageId`,
         { updatedAt: assignment.storedAt, packageId: params.packageId },
       );
-      if (res.affectedRows === 0) throw new PackageAlreadyStoredError();
 
       return { lockerId, lockerCode };
     });

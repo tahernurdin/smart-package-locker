@@ -86,7 +86,10 @@ CREATE TABLE IF NOT EXISTS locker_assignment (
   -- THE core invariant: a locker holds at most one active package. Enforced here
   -- so it holds under any request interleaving — a race yields ER_DUP_ENTRY.
   UNIQUE KEY uq_one_active_assignment_per_locker (active_locker_id),
-  KEY ix_locker_assignment_package (package_id, stored_at),
+  -- The mirror invariant, and it needs no active_* column: a package has exactly
+  -- one storage episode (RETRIEVED is terminal) where a locker has many, so a
+  -- plain UNIQUE holds. Doubles as the index for package_id lookups.
+  UNIQUE KEY uq_one_assignment_per_package (package_id),
   CONSTRAINT fk_assignment_package FOREIGN KEY (package_id) REFERENCES package (id),
   CONSTRAINT fk_assignment_locker  FOREIGN KEY (locker_id)  REFERENCES locker (id),
   CONSTRAINT chk_assignment_retrieved_after_stored
