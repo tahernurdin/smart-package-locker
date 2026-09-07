@@ -1,21 +1,20 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { LockerNotFoundError } from '../domain/errors.js';
 import {
   LOCKER_REPOSITORY,
-  type ListLockersFilter,
   type LockerRepository,
 } from '../domain/locker.repository.js';
 import { toLockerView, type LockerView } from './locker.view.js';
 
-export type { LockerView };
-
 @Injectable()
-export class ListLockersService {
+export class GetLockerService {
   constructor(
     @Inject(LOCKER_REPOSITORY) private readonly lockers: LockerRepository,
   ) {}
 
-  async listLockers(filter: ListLockersFilter = {}): Promise<LockerView[]> {
-    const rows = await this.lockers.listWithOccupancy(filter);
-    return rows.map(toLockerView);
+  async getLocker(id: string): Promise<LockerView> {
+    const found = await this.lockers.findByIdWithOccupancy(id);
+    if (!found) throw new LockerNotFoundError(id);
+    return toLockerView(found);
   }
 }

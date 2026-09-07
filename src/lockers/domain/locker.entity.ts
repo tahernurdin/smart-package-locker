@@ -1,6 +1,6 @@
-import { InvalidLockerCodeError } from './errors.js';
+import { InvalidLockerCodeError, LockerDecommissionedError } from './errors.js';
 import type { LockerSize } from './locker-size.js';
-import type { LockerStatus } from './locker-status.js';
+import type { LiveLockerStatus, LockerStatus } from './locker-status.js';
 
 export interface LockerProps {
   id: string;
@@ -12,6 +12,14 @@ export interface LockerProps {
   updatedAt: Date;
 }
 
+/**
+ * A physical box at a station. Immutable — transitions return a new instance.
+ *
+ * `size` and `stationId` are fixed for life: they describe the hardware and
+ * where it is bolted. A box that changed size would invalidate the allocation
+ * already made for whatever is inside it, so the operator retires it and
+ * creates its replacement.
+ */
 export class Locker {
   readonly id: string;
   readonly stationId: string;
@@ -38,12 +46,10 @@ export class Locker {
     size: LockerSize;
     now: Date;
   }): Locker {
-    const code = params.code.trim();
-    if (code.length === 0) throw new InvalidLockerCodeError();
     return new Locker({
       id: params.id,
       stationId: params.stationId,
-      code,
+      code: requireCode(params.code),
       size: params.size,
       status: 'IN_SERVICE',
       createdAt: params.now,
@@ -59,7 +65,45 @@ export class Locker {
     return this.status === 'IN_SERVICE';
   }
 
+  isDecommissioned(): boolean {
+    return this.status === 'DECOMMISSIONED';
+  }
+
   canFit(required: LockerSize): boolean {
     return this.size.fits(required);
   }
+
+  /**
+   * Relabel and/or take in or out of service. Uniqueness of `(station, code)`
+   * is the repository's to enforce; omitting a field keeps it.
+   */
+  update(params: {
+    code?: string;
+    status?: LiveLockerStatus;
+    now: Date;
+  }): Locker {
+    this.requireLive();
+    return new Locker({
+      ...this,
+      code: params.code === undefined ? this.code : requireCode(params.code),
+      status: params.status ?? this.status,
+      updatedAt: params.now,
+    });
+  }
+
+  /** → DECOMMISSIONED. Terminal: a retired locker never returns to service. */
+  decommission(now: Date): Locker {
+    this.requireLive();
+    return new Locker({ ...this, status: 'DECOMMISSIONED', updatedAt: now });
+  }
+
+  private requireLive(): void {
+    if (this.isDecommissioned()) throw new LockerDecommissionedError(this.id);
+  }
+}
+
+function requireCode(code: string): string {
+  const trimmed = code.trim();
+  if (trimmed.length === 0) throw new InvalidLockerCodeError();
+  return trimmed;
 }

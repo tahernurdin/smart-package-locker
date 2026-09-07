@@ -16,8 +16,12 @@ Built with NestJS + MySQL in a layered/clean architecture. See
   scope per the brief, so there is no `customer` table and no `/customers` endpoint.
 - **Retrieval is authorized by possession** (locker id + pickup code). The `CUSTOMER` role only
   gates the route; no customer identity is checked.
-- **A single locker station.** The schema models `locker_station` because the brief frames lockers
-  as living inside stations, but only the seeded default station is exercised.
+- **Stations are this service's data**, unlike customers: `locker.station_id` references them,
+  `GET /lockers` joins them, and `POST /lockers` accepts one. So operators manage them directly
+  (`/stations`). Lockers land at the seeded default station when no `stationId` is given.
+- **Nothing is ever hard-deleted.** `DELETE` on a station or a locker *decommissions* it: the row
+  stays (the assignment history that backs the fee calculation references it), it drops out of the
+  default listing, and the allocator stops considering it. Decommissioning is terminal.
 
 ## Status
 
@@ -112,8 +116,16 @@ all three, so nothing leaks).
 | `GET` | `/health/live` | — | Liveness — process only, no DB |
 | `GET` | `/health/ready` | — | Readiness — `SELECT 1`, `503` when the DB is down |
 | `POST` | `/auth/dev-token` | — (dev only) | Mint a token for `{ role }` |
+| `POST` | `/stations` | Operator | Create a station `{ name, location? }` |
+| `GET` | `/stations` | Operator | List stations; `?includeDecommissioned=true` to see retired ones |
+| `GET` | `/stations/:id` | Operator | Read one station (retired ones included) |
+| `PATCH` | `/stations/:id` | Operator | Rename / relocate `{ name?, location? }` |
+| `DELETE` | `/stations/:id` | Operator | Decommission — `409` while it still has live lockers |
 | `POST` | `/lockers` | Operator | Create a locker `{ code, size, stationId? }` |
-| `GET` | `/lockers` | Operator | List lockers (`FREE`/`OCCUPIED` + station); optional `?stationId=<uuid>` |
+| `GET` | `/lockers` | Operator | List lockers (`FREE`/`OCCUPIED` + station); `?stationId=<uuid>`, `?includeDecommissioned=true` |
+| `GET` | `/lockers/:id` | Operator | Read one locker |
+| `PATCH` | `/lockers/:id` | Operator | Relabel / take out of service `{ code?, status? }` |
+| `DELETE` | `/lockers/:id` | Operator | Decommission — `409` while a package is inside |
 | `POST` | `/packages` | Agent | Register a parcel `{ size, customerId, trackingRef? }` → `{ packageId, status }` |
 | `POST` | `/packages/:id/store` | Agent | Drop it in the smallest fitting locker → `{ lockerId, lockerCode, pickupCode, status }` |
 | `POST` | `/packages/retrieve` | Customer | Retrieve `{ lockerId, pickupCode }` — opens the locker, returns the fee |
@@ -128,9 +140,31 @@ Each `GET /lockers` row:
 
 **No pagination or sorting.** A locker bank is bounded and small (tens per station), and the list
 comes back deterministically ordered by size then code — the natural "here's the wall" view.
-`?stationId=` is the one filter that matters. The repository method takes an options object, so
-`limit` / `cursor` / `sort` can be added later without changing callers if a deployment ever needs
-them.
+`?stationId=` and `?includeDecommissioned=` are the only filters. The repository method takes an
+options object, so `limit` / `cursor` / `sort` can be added later without changing callers if a
+deployment ever needs them.
+
+## Managing lockers and stations
+
+Operators get full CRUD on both. Two rules shape it:
+
+- **A locker needs a live station.** `POST /lockers` validates `stationId` — `404 station_not_found`
+  for an unknown one, `409 station_decommissioned` for a retired one. (Before this existed, an
+  unknown id reached the foreign key and came back as a 500.)
+- **`DELETE` decommissions, it never erases.** `locker_assignment` rows reference their locker, and
+  lockers reference their station, so the history has to keep its referent. A retired row is hidden
+  from the default list, still readable by id, visible under `?includeDecommissioned=true`, and
+  frozen — no further edits, no second retirement.
+
+Retirement is guarded on both sides: a locker holding a package answers `409 locker_occupied`, and a
+station with lockers still standing answers `409 station_not_empty`. Retire the lockers, then the
+station.
+
+A locker's `code` and `status` are editable; its `size` and `stationId` are not — those describe the
+hardware and where it is bolted, and a box that changed size would invalidate the allocation already
+made for whatever is inside it. Retire it and create its replacement. `PATCH` moves a locker between
+`IN_SERVICE` and `OUT_OF_SERVICE` (maintenance — the allocator only ever picks `IN_SERVICE`);
+`DECOMMISSIONED` is reachable only through `DELETE`, which checks the locker is empty first.
 
 ## Storage fees
 
@@ -169,7 +203,8 @@ npm run start:dev
 npm run test                  # unit tests (no DB)
 npm run lint
 docker compose up -d mysql    # e2e needs a MySQL
-npm run test:e2e              # full Level 1–3 flows (Level 3 fakes the clock to age a package)
+npm run test:e2e              # Level 1–3 flows (L3 fakes the clock to age a package)
+                              # + station/locker management (test/locker-management.e2e-spec.ts)
 ```
 
 Run one test file or case:
@@ -184,10 +219,11 @@ npx vitest run -t "assigns the smallest locker that fits"
 ```
 src/
   shared/       config, database (pool + migrator), clock, id, pickup-code, errors, auth
+  stations/     domain / application / infrastructure / interface  (+ module)
   lockers/      domain / application / infrastructure / interface  (+ module)
   packages/     domain / application / infrastructure / interface  (+ module)
 migrations/     *.sql, applied in order and tracked in schema_migrations
-tasks/          per-task specs (Level 1: 01–08, Level 2: 09–12, L3: 15–17, split + L4: 18–20)
+tasks/          per-task specs (L1: 01–08, L2: 09–12, L3: 15–17, split + L4: 18–20, CRUD: 22–23)
 ```
 
 Dependencies point inward: HTTP → application → domain; infrastructure implements domain ports and

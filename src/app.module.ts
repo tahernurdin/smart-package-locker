@@ -6,6 +6,7 @@ import { SharedKernelModule } from './shared/shared-kernel.module.js';
 import { HealthModule } from './health/health.module.js';
 import { LockersModule } from './lockers/lockers.module.js';
 import { PackagesModule } from './packages/packages.module.js';
+import { StationsModule } from './stations/stations.module.js';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { PackagesModule } from './packages/packages.module.js';
     SharedKernelModule,
     AuthModule,
     HealthModule,
+    StationsModule,
     LockersModule,
     PackagesModule,
   ],

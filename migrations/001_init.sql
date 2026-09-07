@@ -8,12 +8,22 @@
 --   * ids (CHAR(36) UUIDs) and DATETIME(6) values are always supplied by the
 --     application, never by DB defaults, so behaviour is deterministic in tests.
 
+-- A site holding a bank of lockers. Operators manage these directly.
+--
+-- `status` is a lifecycle, not a delete flag: rows are never removed, because
+-- `locker.station_id` (and through it the assignment history) references them.
+-- DECOMMISSIONED is terminal — a retired station is hidden from the default
+-- listing and refuses new lockers.
 CREATE TABLE IF NOT EXISTS locker_station (
   id         CHAR(36)     NOT NULL,
   name       VARCHAR(120) NOT NULL,
   location   VARCHAR(255) NULL,
+  status     VARCHAR(20)  NOT NULL DEFAULT 'ACTIVE',
   created_at DATETIME(6)  NOT NULL,
-  PRIMARY KEY (id)
+  updated_at DATETIME(6)  NOT NULL,
+  PRIMARY KEY (id),
+  KEY ix_locker_station_status (status),
+  CONSTRAINT chk_station_status CHECK (status IN ('ACTIVE', 'DECOMMISSIONED'))
 );
 
 CREATE TABLE IF NOT EXISTS locker (
@@ -28,7 +38,11 @@ CREATE TABLE IF NOT EXISTS locker (
   UNIQUE KEY uq_locker_code_per_station (station_id, code),
   KEY ix_locker_station_status (station_id, status),
   CONSTRAINT fk_locker_station FOREIGN KEY (station_id) REFERENCES locker_station (id),
-  CONSTRAINT chk_locker_status CHECK (status IN ('IN_SERVICE', 'OUT_OF_SERVICE')),
+  -- IN_SERVICE / OUT_OF_SERVICE toggle (maintenance); DECOMMISSIONED is terminal
+  -- and stands in for a delete — the row survives so locker_assignment history
+  -- keeps its referent. Only IN_SERVICE lockers are allocated to packages.
+  CONSTRAINT chk_locker_status
+    CHECK (status IN ('IN_SERVICE', 'OUT_OF_SERVICE', 'DECOMMISSIONED')),
   CONSTRAINT chk_locker_size   CHECK (size_code IN ('SMALL', 'MEDIUM', 'LARGE'))
 );
 

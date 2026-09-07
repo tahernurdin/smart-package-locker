@@ -35,6 +35,12 @@ Brief: `Smart Package Everest Coding challenge.pdf`. Reference data model: `001_
   (`SMALL/MEDIUM/LARGE`) already modelled by the `LockerSize` value object, so the table only
   duplicated the `rank` ordering. `size_code` columns now carry a `CHECK`; the allocator query
   orders with `FIELD(size_code, 'SMALL','MEDIUM','LARGE')`. The VO is the single source of truth.
+- **Lifecycle columns instead of deletes** (tasks 22–23). `locker_station` gains
+  `status ACTIVE | DECOMMISSIONED` (+ `updated_at`); `chk_locker_status` gains `DECOMMISSIONED`
+  alongside `IN_SERVICE | OUT_OF_SERVICE`. `DELETE` on either resource flips the status: rows are
+  referenced by `locker.station_id` and `locker_assignment.locker_id`, and the storage history backs
+  the fee calculation, so nothing is erased. Retired rows are hidden from the default listings and
+  the allocator ignores them for free (it already takes only `IN_SERVICE`).
 - Allocation query: `... WHERE serviceable AND no active package
   ORDER BY FIELD(size_code, …), code LIMIT 1 FOR UPDATE SKIP LOCKED` so concurrent agents pick
   different lockers without blocking; bounded retry on `ER_DUP_ENTRY`.
@@ -47,8 +53,12 @@ Dependencies point inward: HTTP → application → domain. Infrastructure depen
 src/
   shared/    clock, id, pickup-code, config, database (pool + migrator + tx helper),
              errors (DomainError + global exception filter), auth (jwt, guards, dev-token)
+  stations/  domain (LockerStation entity, StationStatus, StationRepository port, errors)
+             application (Create/List/Get/Update/DecommissionStationService)
+             infrastructure (MysqlStationRepository)
+             interface (StationsController, DTOs)           + stations.module.ts
   lockers/   domain (Locker entity, LockerSize+rank, LockerStatus, LockerRepository port, errors)
-             application (CreateLockerService, ListLockersService)
+             application (Create/List/Get/Update/DecommissionLockerService, LockerView)
              infrastructure (MysqlLockerRepository)
              interface (LockersController, DTOs)            + lockers.module.ts
   packages/  domain (Package aggregate + LockerAssignment, PickupCode VO,
@@ -63,6 +73,11 @@ src/
 Application services inject repository **interfaces** bound via tokens
 (`{ provide: LOCKER_REPOSITORY, useClass: MysqlLockerRepository }`). Domain is `@nestjs/*`-free.
 
+The module graph is acyclic: `packages → lockers → stations`. That direction is why
+`countLiveLockers` (the guard on retiring a station) sits on `StationRepository` rather than
+`LockerRepository` — only the MySQL adapter knows it reads the `locker` table, and the port stays a
+plain question about a station.
+
 **Customer identity is out of scope.** A package carries a `customerId` — an opaque reference
 issued by an upstream customer service. This service persists it and never resolves it; there is no
 `customer` table, no FK, and no `/customers` endpoint. Delivering the pickup code (SMS/email) is
@@ -74,8 +89,16 @@ code), so no customer attribute is ever read.
 | Method | Path | Role | Result |
 |---|---|---|---|
 | POST | `/auth/dev-token` | — (dev only) | `{ token }` for `{ role }` |
-| POST | `/lockers` | Operator | create locker `{ code, size, stationId? }` |
+| POST | `/stations` | Operator | create station `{ name, location? }` |
+| GET | `/stations` | Operator | list active stations; `?includeDecommissioned=true` for retired ones |
+| GET | `/stations/:id` | Operator | read one station |
+| PATCH | `/stations/:id` | Operator | rename / relocate `{ name?, location? }` |
+| DELETE | `/stations/:id` | Operator | decommission; 409 `station_not_empty` while lockers stand there |
+| POST | `/lockers` | Operator | create locker `{ code, size, stationId? }`; 404 `station_not_found` / 409 `station_decommissioned` |
 | GET | `/lockers` | Operator | list: code, size, service status, `FREE`/`OCCUPIED`, active package summary |
+| GET | `/lockers/:id` | Operator | read one locker (same row shape as the list) |
+| PATCH | `/lockers/:id` | Operator | relabel / service status `{ code?, status? }`; 409 `locker_code_taken` |
+| DELETE | `/lockers/:id` | Operator | decommission; 409 `locker_occupied` while a package is inside |
 | POST | `/packages` | Agent | register parcel `{ size, customerId, trackingRef? }` → `{ packageId, status: REGISTERED }` |
 | POST | `/packages/:id/store` | Agent | drop it → `{ packageId, lockerId, lockerCode, pickupCode, status: STORED }`; 409 `no_suitable_locker` / `package_already_stored` |
 | POST | `/packages/retrieve` | Customer | `{ lockerId, pickupCode }` → `{ packageId, retrievedAt, storageFee{amountMinor,currency} }`; 404/409 on invalid / already retrieved |

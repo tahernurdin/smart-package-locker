@@ -5,6 +5,7 @@
 - **Refactors** (tasks 13–14) — done
 - **Level 3 — Extended storage charges** (tasks 15–17) — done
 - **Package lifecycle split + Level 4 — concurrent stores** (tasks 18–21)
+- **Operator resource management — station & locker CRUD** (tasks 22–23) — done
 
 See `../docs/implementation-plan.md` for the overall design and decisions.
 
@@ -103,6 +104,23 @@ requirements are proven by `test/level4.e2e-spec.ts` in task 20.
 | 19 | [Split `package` into `package` + `locker_assignment`](task-19-package-locker-assignment-split.md) | 18 | ✅ Done (amended by task 21) |
 | 20 | [Lifecycle + Level 4 contention: e2e & docs](task-20-lifecycle-and-contention-e2e.md) | 19, 21 | Not started |
 | 21 | [Drop the customers module — `customerId` is an upstream reference](task-21-drop-customers-module.md) | 19 | ✅ Done |
+
+## Operator resource management
+
+Full CRUD on the two things an operator owns. `locker_station` had a table since task 02 but no API,
+which left `POST /lockers` accepting a `stationId` nothing validated — an unknown one reached the
+foreign key and surfaced as a **500**. And `locker`, the core resource, could only be created and
+listed: nothing could relabel a box, take one out of service, or retire one.
+
+Neither resource is ever hard-deleted. `DELETE` decommissions: the row is referenced by the lockers
+and, through them, the assignment history that backs the fee calculation, so it is kept and hidden.
+Decommissioning is terminal and guarded — a station with live lockers and a locker holding a package
+both refuse.
+
+| # | Task | Depends on | Status |
+|---|---|---|---|
+| 22 | [Station CRUD (`/stations`)](task-22-station-crud.md) | 21 | ✅ Done |
+| 23 | [Locker CRUD (`GET`/`PATCH`/`DELETE /lockers/:id`)](task-23-locker-crud.md) | 22 | ✅ Done |
 
 ## Conventions (all tasks)
 

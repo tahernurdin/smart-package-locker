@@ -17,12 +17,19 @@ export interface LockerOccupancy {
 
 export interface ListLockersFilter {
   stationId?: string;
+  /** Retired lockers are hidden unless asked for. */
+  includeDecommissioned?: boolean;
 }
 
 export interface LockerRepository {
   save(locker: Locker): Promise<void>;
 
+  update(locker: Locker): Promise<void>;
+
   findById(id: string): Promise<Locker | null>;
+
+  /** One locker with its derived occupancy and station — `GET /lockers/:id`. */
+  findByIdWithOccupancy(id: string): Promise<LockerOccupancy | null>;
 
   existsByStationAndCode(stationId: string, code: string): Promise<boolean>;
 

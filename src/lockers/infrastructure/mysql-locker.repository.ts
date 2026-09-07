@@ -1,8 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
-import { isDuplicateEntryError } from '../../shared/database/mysql-errors.js';
+import {
+  isDuplicateEntryError,
+  isMissingReferenceError,
+} from '../../shared/database/mysql-errors.js';
 import { MYSQL_POOL } from '../../shared/database/mysql.pool.js';
 import { sizeOrderExpr } from '../../shared/database/size-order.js';
+import { StationNotFoundError } from '../../stations/domain/errors.js';
 import { LockerCodeTakenError } from '../domain/errors.js';
 import { Locker } from '../domain/locker.entity.js';
 import { LockerSize } from '../domain/locker-size.js';
@@ -11,6 +15,15 @@ import type {
   LockerOccupancy,
   LockerRepository,
 } from '../domain/locker.repository.js';
+
+const OCCUPANCY_SELECT = `
+  l.id, l.station_id, l.code, l.size_code, l.status,
+  l.created_at, l.updated_at,
+  la.package_id AS active_package_id,
+  st.name AS station_name, st.location AS station_location
+  FROM locker l
+  JOIN locker_station st ON st.id = l.station_id
+  LEFT JOIN locker_assignment la ON la.active_locker_id = l.id`;
 
 @Injectable()
 export class MysqlLockerRepository implements LockerRepository {
@@ -37,6 +50,32 @@ export class MysqlLockerRepository implements LockerRepository {
       if (isDuplicateEntryError(err)) {
         throw new LockerCodeTakenError(locker.stationId, locker.code);
       }
+      // The service checks the station first; this covers the race and keeps a
+      // bad `stationId` a 404 rather than a 500.
+      if (isMissingReferenceError(err)) {
+        throw new StationNotFoundError(locker.stationId);
+      }
+      throw err;
+    }
+  }
+
+  async update(locker: Locker): Promise<void> {
+    try {
+      await this.pool.query(
+        `UPDATE locker
+         SET code = :code, status = :status, updated_at = :updatedAt
+         WHERE id = :id`,
+        {
+          id: locker.id,
+          code: locker.code,
+          status: locker.status,
+          updatedAt: locker.updatedAt,
+        },
+      );
+    } catch (err) {
+      if (isDuplicateEntryError(err)) {
+        throw new LockerCodeTakenError(locker.stationId, locker.code);
+      }
       throw err;
     }
   }
@@ -48,6 +87,14 @@ export class MysqlLockerRepository implements LockerRepository {
       { id },
     );
     return rows.length ? this.toLocker(rows[0]) : null;
+  }
+
+  async findByIdWithOccupancy(id: string): Promise<LockerOccupancy | null> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT ${OCCUPANCY_SELECT} WHERE l.id = :id LIMIT 1`,
+      { id },
+    );
+    return rows.length ? this.toOccupancy(rows[0]) : null;
   }
 
   async existsByStationAndCode(
@@ -65,18 +112,20 @@ export class MysqlLockerRepository implements LockerRepository {
     filter: ListLockersFilter = {},
   ): Promise<LockerOccupancy[]> {
     const [rows] = await this.pool.query<RowDataPacket[]>(
-      `SELECT l.id, l.station_id, l.code, l.size_code, l.status,
-              l.created_at, l.updated_at,
-              la.package_id AS active_package_id,
-              st.name AS station_name, st.location AS station_location
-       FROM locker l
-       JOIN locker_station st ON st.id = l.station_id
-       LEFT JOIN locker_assignment la ON la.active_locker_id = l.id
+      `SELECT ${OCCUPANCY_SELECT}
        WHERE (:stationId IS NULL OR l.station_id = :stationId)
+         AND (:includeDecommissioned OR l.status <> 'DECOMMISSIONED')
        ORDER BY ${sizeOrderExpr('l.size_code')} ASC, l.code ASC`,
-      { stationId: filter.stationId ?? null },
+      {
+        stationId: filter.stationId ?? null,
+        includeDecommissioned: filter.includeDecommissioned ?? false,
+      },
     );
-    return rows.map((row) => ({
+    return rows.map((row) => this.toOccupancy(row));
+  }
+
+  private toOccupancy(row: RowDataPacket): LockerOccupancy {
+    return {
       locker: this.toLocker(row),
       activePackageId: (row.active_package_id as string | null) ?? null,
       station: {
@@ -84,7 +133,7 @@ export class MysqlLockerRepository implements LockerRepository {
         name: row.station_name as string,
         location: (row.station_location as string | null) ?? null,
       },
-    }));
+    };
   }
 
   private toLocker(row: RowDataPacket): Locker {
