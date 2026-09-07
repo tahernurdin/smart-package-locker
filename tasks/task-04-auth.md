@@ -1,6 +1,6 @@
 # Task 04 — Auth: dummy JWT per role
 
-**Level:** 1 · **Depends on:** 01, 03 · **Status:** Not started
+**Level:** 1 · **Depends on:** 01, 03 · **Status:** Done
 
 ## Goal
 

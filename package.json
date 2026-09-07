@@ -15,6 +15,7 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "db:migrate": "nest build && node dist/shared/database/migrate.cli.js",
+    "token": "nest build && node dist/shared/auth/token.cli.js",
     "lint": "oxlint src/ test/",
     "test": "vitest run",
     "test:watch": "vitest",
