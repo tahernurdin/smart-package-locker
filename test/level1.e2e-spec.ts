@@ -38,6 +38,11 @@ describe('Level 1 (e2e)', () => {
       }),
     );
     await app.init();
+    // Bind one real port for the whole suite. Against an unlistened server
+    // supertest opens and closes an ephemeral one per request, so in a
+    // concurrent batch the first response closes the socket out from under the
+    // rest (ECONNRESET).
+    await app.listen(0);
     pool = app.get<Pool>(MYSQL_POOL);
   });
 

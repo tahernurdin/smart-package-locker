@@ -30,6 +30,9 @@ describe('Level 2 — retrieval (e2e)', () => {
       }),
     );
     await app.init();
+    // See level1.e2e-spec.ts: a listening server is required for the concurrent
+    // batches below, or supertest closes the socket between requests.
+    await app.listen(0);
     pool = app.get<Pool>(MYSQL_POOL);
   });
 
