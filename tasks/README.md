@@ -50,6 +50,12 @@ policy seam introduced here), `FOR UPDATE SKIP LOCKED` allocation hardening (L4)
 | 11 | [Retrieve package endpoint](task-11-retrieve-package-endpoint.md) | 10 | ✅ Done |
 | 12 | [Level 2 end-to-end + docs](task-12-level2-e2e.md) | 11 | ✅ Done |
 
+## Refactors
+
+| # | Task | Depends on | Status |
+|---|---|---|---|
+| 13 | [Drop the `locker_size` reference table](task-13-drop-locker-size-table.md) | 12 | ✅ Done |
+
 ## Conventions (all tasks)
 
 - Follow `../CLAUDE.md`: inward-pointing layers, framework-free `domain/`, repository ports bound

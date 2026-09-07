@@ -28,9 +28,13 @@ Brief: `Smart Package Everest Coding challenge.pdf`. Reference data model: `001_
   seed/config test instead.
 - `CHECK` constraints → kept (MySQL 8.0.16+ enforces them) → image `mysql:8.4`.
 - `btree_gist`, `pgcrypto`, `int4range` → dropped.
-- Allocation query: `... WHERE serviceable AND no active package ORDER BY rank, code LIMIT 1
-  FOR UPDATE SKIP LOCKED` so concurrent agents pick different lockers without blocking; bounded
-  retry on `ER_DUP_ENTRY`.
+- **`locker_size` reference table → dropped** (Task 13). Size is a fixed enum
+  (`SMALL/MEDIUM/LARGE`) already modelled by the `LockerSize` value object, so the table only
+  duplicated the `rank` ordering. `size_code` columns now carry a `CHECK`; the allocator query
+  orders with `FIELD(size_code, 'SMALL','MEDIUM','LARGE')`. The VO is the single source of truth.
+- Allocation query: `... WHERE serviceable AND no active package
+  ORDER BY FIELD(size_code, …), code LIMIT 1 FOR UPDATE SKIP LOCKED` so concurrent agents pick
+  different lockers without blocking; bounded retry on `ER_DUP_ENTRY`.
 
 ## Architecture
 

@@ -1,9 +1,5 @@
 -- 002_seed.sql - reference + demo data. Idempotent (INSERT IGNORE).
-
-INSERT IGNORE INTO locker_size (code, `rank`, label) VALUES
-  ('SMALL',  10, 'Small'),
-  ('MEDIUM', 20, 'Medium'),
-  ('LARGE',  30, 'Large');
+-- Sizes (SMALL/MEDIUM/LARGE) are an enum enforced by CHECK, not seeded data.
 
 -- The single default station. Locker creation uses this when no station is given.
 INSERT IGNORE INTO locker_station (id, name, location, created_at) VALUES

@@ -13,15 +13,8 @@
 --     package is retrieved, with a plain UNIQUE over them.
 --   * EXCLUDE USING gist (no overlapping rate bands) -> covered by a seed test.
 --   * Postgres extensions / int4range -> dropped.
-
-CREATE TABLE IF NOT EXISTS locker_size (
-  code    VARCHAR(20) NOT NULL,
-  `rank`  INT         NOT NULL,
-  label   VARCHAR(50) NOT NULL,
-  PRIMARY KEY (code),
-  UNIQUE KEY uq_locker_size_rank (`rank`),
-  CONSTRAINT chk_locker_size_rank_positive CHECK (`rank` > 0)
-);
+--   * Size is a fixed enum (SMALL/MEDIUM/LARGE) enforced by CHECK, not a
+--     reference table. Its ordering lives in the LockerSize value object.
 
 CREATE TABLE IF NOT EXISTS locker_station (
   id         CHAR(36)     NOT NULL,
@@ -43,8 +36,8 @@ CREATE TABLE IF NOT EXISTS locker (
   UNIQUE KEY uq_locker_code_per_station (station_id, code),
   KEY ix_locker_station_status (station_id, status),
   CONSTRAINT fk_locker_station FOREIGN KEY (station_id) REFERENCES locker_station (id),
-  CONSTRAINT fk_locker_size    FOREIGN KEY (size_code)  REFERENCES locker_size (code),
-  CONSTRAINT chk_locker_status CHECK (status IN ('IN_SERVICE', 'OUT_OF_SERVICE'))
+  CONSTRAINT chk_locker_status CHECK (status IN ('IN_SERVICE', 'OUT_OF_SERVICE')),
+  CONSTRAINT chk_locker_size   CHECK (size_code IN ('SMALL', 'MEDIUM', 'LARGE'))
 );
 
 CREATE TABLE IF NOT EXISTS customer (
@@ -81,7 +74,7 @@ CREATE TABLE IF NOT EXISTS package (
   KEY ix_package_customer (customer_id, stored_at),
   CONSTRAINT fk_package_locker   FOREIGN KEY (locker_id)   REFERENCES locker (id),
   CONSTRAINT fk_package_customer FOREIGN KEY (customer_id) REFERENCES customer (id),
-  CONSTRAINT fk_package_size     FOREIGN KEY (size_code)   REFERENCES locker_size (code),
+  CONSTRAINT chk_package_size CHECK (size_code IN ('SMALL', 'MEDIUM', 'LARGE')),
   CONSTRAINT chk_package_retrieved_after_stored
     CHECK (retrieved_at IS NULL OR retrieved_at >= stored_at),
   CONSTRAINT chk_package_fee_iff_retrieved
@@ -99,7 +92,7 @@ CREATE TABLE IF NOT EXISTS storage_rate (
   effective_from DATETIME(6) NOT NULL,
   PRIMARY KEY (id),
   KEY ix_storage_rate_lookup (size_code, effective_from),
-  CONSTRAINT fk_storage_rate_size FOREIGN KEY (size_code) REFERENCES locker_size (code),
+  CONSTRAINT chk_storage_rate_size CHECK (size_code IN ('SMALL', 'MEDIUM', 'LARGE')),
   CONSTRAINT chk_storage_rate_from_day_non_negative CHECK (from_day >= 0),
   CONSTRAINT chk_storage_rate_band_ordered CHECK (to_day IS NULL OR to_day > from_day),
   CONSTRAINT chk_storage_rate_non_negative CHECK (rate_minor >= 0)

@@ -1,7 +1,5 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { InvalidLockerSizeError } from './errors.js';
-import { LOCKER_SIZES, LockerSize } from './locker-size.js';
+import { LockerSize } from './locker-size.js';
 
 describe('LockerSize', () => {
   it('ranks SMALL < MEDIUM < LARGE', () => {
@@ -21,17 +19,5 @@ describe('LockerSize', () => {
 
   it('rejects an unknown size', () => {
     expect(() => LockerSize.of('HUGE')).toThrow(InvalidLockerSizeError);
-  });
-
-  it('ranks match migrations/002_seed.sql', () => {
-    const sql = readFileSync(
-      join(process.cwd(), 'migrations/002_seed.sql'),
-      'utf8',
-    );
-    for (const code of LOCKER_SIZES) {
-      const match = sql.match(new RegExp(`\\('${code}',\\s*(\\d+),`));
-      expect(match, `seed row for ${code}`).toBeTruthy();
-      expect(Number(match![1])).toBe(LockerSize.of(code).rank);
-    }
   });
 });

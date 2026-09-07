@@ -10,6 +10,14 @@ import type {
   LockerRepository,
 } from '../domain/locker.repository.js';
 
+/**
+ * Size ordering for SQL. Mirrors `LockerSize` rank (the source of truth) — only
+ * the allocator query needs sizes ordered, so it lives inline rather than in a
+ * reference table.
+ */
+const sizeRank = (expr: string) =>
+  `FIELD(${expr}, 'SMALL', 'MEDIUM', 'LARGE')`;
+
 @Injectable()
 export class MysqlLockerRepository implements LockerRepository {
   constructor(@Inject(MYSQL_POOL) private readonly pool: Pool) {}
@@ -65,9 +73,8 @@ export class MysqlLockerRepository implements LockerRepository {
               l.created_at, l.updated_at,
               p.id AS active_package_id
        FROM locker l
-       JOIN locker_size s ON s.code = l.size_code
        LEFT JOIN package p ON p.active_locker_id = l.id
-       ORDER BY s.\`rank\` ASC, l.code ASC`,
+       ORDER BY ${sizeRank('l.size_code')} ASC, l.code ASC`,
     );
     return rows.map((row) => ({
       locker: this.toLocker(row),
@@ -83,15 +90,14 @@ export class MysqlLockerRepository implements LockerRepository {
       `SELECT l.id, l.station_id, l.code, l.size_code, l.status,
               l.created_at, l.updated_at
        FROM locker l
-       JOIN locker_size s ON s.code = l.size_code
        LEFT JOIN package p ON p.active_locker_id = l.id
        WHERE l.station_id = :stationId
          AND l.status = 'IN_SERVICE'
          AND p.id IS NULL
-         AND s.\`rank\` >= :requiredRank
-       ORDER BY s.\`rank\` ASC, l.code ASC
+         AND ${sizeRank('l.size_code')} >= ${sizeRank(':requiredCode')}
+       ORDER BY ${sizeRank('l.size_code')} ASC, l.code ASC
        LIMIT 1`,
-      { stationId, requiredRank: required.rank },
+      { stationId, requiredCode: required.code },
     );
     return rows.length ? this.toLocker(rows[0]) : null;
   }

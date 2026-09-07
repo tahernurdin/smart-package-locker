@@ -4,9 +4,11 @@ export const LOCKER_SIZES = ['SMALL', 'MEDIUM', 'LARGE'] as const;
 export type LockerSizeCode = (typeof LOCKER_SIZES)[number];
 
 /**
- * Ordered locker/package size. `rank` gives the total ordering the allocator
- * needs ("smallest locker that fits"). Must stay in sync with the `locker_size`
- * seed in migrations/002_seed.sql (guarded by a test).
+ * Ordered locker/package size. This is the single source of truth for the size
+ * set and its ordering — the DB stores `size_code` as a plain CHECK-constrained
+ * enum, and the allocator query mirrors this order with `FIELD(size_code, …)`.
+ * `rank` gives the total ordering the allocator needs ("smallest locker that
+ * fits"). Gaps (10/20/30) leave room to insert a size.
  */
 const RANKS: Record<LockerSizeCode, number> = {
   SMALL: 10,
