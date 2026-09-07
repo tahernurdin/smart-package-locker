@@ -1,6 +1,6 @@
 # Task 11 — Retrieve package endpoint
 
-**Level:** 2 · **Depends on:** 10 · **Status:** Not started
+**Level:** 2 · **Depends on:** 10 · **Status:** Done
 
 ## Goal
 

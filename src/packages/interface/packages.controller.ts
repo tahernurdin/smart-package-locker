@@ -4,14 +4,22 @@ import type { AuthUser } from '../../shared/auth/auth-user.js';
 import { CurrentUser } from '../../shared/auth/current-user.decorator.js';
 import { Role } from '../../shared/auth/roles.js';
 import {
+  RetrievePackageService,
+  type RetrievedPackage,
+} from '../application/retrieve-package.service.js';
+import {
   StorePackageService,
   type StoredPackage,
 } from '../application/store-package.service.js';
+import { RetrievePackageDto } from './dto/retrieve-package.dto.js';
 import { StorePackageDto } from './dto/store-package.dto.js';
 
 @Controller('packages')
 export class PackagesController {
-  constructor(private readonly storePackage: StorePackageService) {}
+  constructor(
+    private readonly storePackage: StorePackageService,
+    private readonly retrievePackage: RetrievePackageService,
+  ) {}
 
   @Post()
   @Auth(Role.Agent)
@@ -26,5 +34,12 @@ export class PackagesController {
       trackingRef: dto.trackingRef,
       agentId: user.sub,
     });
+  }
+
+  @Post('retrieve')
+  @Auth(Role.Customer)
+  @HttpCode(200)
+  retrieve(@Body() dto: RetrievePackageDto): Promise<RetrievedPackage> {
+    return this.retrievePackage.retrieve(dto);
   }
 }
