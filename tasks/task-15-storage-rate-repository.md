@@ -1,6 +1,6 @@
 # Task 15 — Storage-rate model + repository
 
-**Level:** 3 · **Depends on:** 12 · **Status:** Not started
+**Level:** 3 · **Depends on:** 12 · **Status:** Done
 
 ## Goal
 

@@ -77,7 +77,7 @@ So L3 is: implement the real tiered calculation behind the existing seam and swa
 
 | # | Task | Depends on | Status |
 |---|---|---|---|
-| 15 | [Storage-rate model + repository](task-15-storage-rate-repository.md) | 12 | Not started |
+| 15 | [Storage-rate model + repository](task-15-storage-rate-repository.md) | 12 | ✅ Done |
 | 16 | [Tiered storage-fee calculator + policy](task-16-tiered-storage-fee-policy.md) | 15 | Not started |
 | 17 | [Wire the tiered policy + Level 3 e2e + docs](task-17-level3-e2e.md) | 16 | Not started |
 
