@@ -1,12 +1,22 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { DEFAULT_STATION_ID } from '../../lockers/application/create-locker.service.js';
 import { CLOCK, type Clock } from '../../shared/clock/clock.js';
-import { ID_GENERATOR, type IdGenerator } from '../../shared/id/id-generator.js';
+import {
+  ID_GENERATOR,
+  type IdGenerator,
+} from '../../shared/id/id-generator.js';
 import {
   PICKUP_CODE_GENERATOR,
   type PickupCodeGenerator,
 } from '../../shared/pickup-code/pickup-code-generator.js';
 import { PickupCodeHasher } from '../../shared/pickup-code/pickup-code-hasher.js';
+import {
+  StationDecommissionedError,
+  StationNotFoundError,
+} from '../../stations/domain/errors.js';
+import {
+  STATION_REPOSITORY,
+  type StationRepository,
+} from '../../stations/domain/station.repository.js';
 import {
   LockerJustTakenError,
   NoSuitableLockerError,
@@ -22,7 +32,8 @@ import {
 export interface StorePackageInput {
   packageId: string;
   agentId?: string;
-  stationId?: string;
+  /** The station the agent is standing at. Allocation never crosses stations. */
+  stationId: string;
 }
 
 export interface StoredPackage {
@@ -40,6 +51,7 @@ const MAX_ATTEMPTS = 3;
 export class StorePackageService {
   constructor(
     @Inject(PACKAGE_REPOSITORY) private readonly packages: PackageRepository,
+    @Inject(STATION_REPOSITORY) private readonly stations: StationRepository,
     @Inject(PICKUP_CODE_GENERATOR) private readonly codes: PickupCodeGenerator,
     private readonly hasher: PickupCodeHasher,
     @Inject(ID_GENERATOR) private readonly ids: IdGenerator,
@@ -47,11 +59,18 @@ export class StorePackageService {
   ) {}
 
   async store(input: StorePackageInput): Promise<StoredPackage> {
-    const stationId = input.stationId ?? DEFAULT_STATION_ID;
+    const { stationId } = input;
 
     const pkg = await this.packages.findById(input.packageId);
     if (!pkg) throw new PackageNotFoundError(input.packageId);
     if (pkg.status !== 'REGISTERED') throw new PackageAlreadyStoredError();
+
+    // Allocation filters on station_id, so an unknown station would simply match
+    // no lockers and come back as `no_suitable_locker` — indistinguishable from a
+    // station that is genuinely full. Answer the real question instead.
+    const station = await this.stations.findById(stationId);
+    if (!station) throw new StationNotFoundError(stationId);
+    if (!station.isActive()) throw new StationDecommissionedError(stationId);
 
     for (let attempt = 1; ; attempt++) {
       const now = this.clock.now();

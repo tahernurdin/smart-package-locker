@@ -5,7 +5,7 @@
 - **Refactors** (tasks 13–14) — done
 - **Level 3 — Extended storage charges** (tasks 15–17) — done
 - **Package lifecycle split + Level 4 — concurrent stores** (tasks 18–21)
-- **Operator resource management — station & locker CRUD** (tasks 22–23) — done
+- **Operator resource management — station & locker CRUD** (tasks 22–24) — done
 
 See `../docs/implementation-plan.md` for the overall design and decisions.
 
@@ -117,10 +117,15 @@ and, through them, the assignment history that backs the fee calculation, so it 
 Decommissioning is terminal and guarded — a station with live lockers and a locker holding a package
 both refuse.
 
+With `POST /stations` in place, the hardcoded `DEFAULT_STATION_ID` lost its reason to exist (task
+24). `stationId` is now required on `POST /lockers` and on `POST /packages/:id/store`: a locker is
+created *at* a named station, and an agent is standing at one when they drop a parcel.
+
 | # | Task | Depends on | Status |
 |---|---|---|---|
 | 22 | [Station CRUD (`/stations`)](task-22-station-crud.md) | 21 | ✅ Done |
 | 23 | [Locker CRUD (`GET`/`PATCH`/`DELETE /lockers/:id`)](task-23-locker-crud.md) | 22 | ✅ Done |
+| 24 | [Drop `DEFAULT_STATION_ID`; require an explicit `stationId`](task-24-require-explicit-station.md) | 22, 23 | ✅ Done |
 
 ## Conventions (all tasks)
 

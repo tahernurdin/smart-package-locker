@@ -12,10 +12,10 @@ import type {
   LockerOccupancy,
   LockerRepository,
 } from '../domain/locker.repository.js';
-import {
-  CreateLockerService,
-  DEFAULT_STATION_ID,
-} from './create-locker.service.js';
+import { CreateLockerService } from './create-locker.service.js';
+
+/** Always explicit — a locker is created *at* a station, with no default. */
+const STATION_ID = '11111111-1111-4111-8111-111111111111';
 
 class FakeLockerRepository implements LockerRepository {
   readonly saved: Locker[] = [];
@@ -66,7 +66,7 @@ class FakeLockerRepository implements LockerRepository {
 const clock: Clock = { now: () => new Date('2026-06-01T12:00:00.000Z') };
 
 const theStation = LockerStation.create({
-  id: DEFAULT_STATION_ID,
+  id: STATION_ID,
   name: 'Test Station',
   location: 'HQ',
   now: new Date('2026-01-01T00:00:00.000Z'),
@@ -91,7 +91,7 @@ describe('CreateLockerService', () => {
       stations(),
       idGen(),
       clock,
-    ).createLocker({ code: 'A-01', size: 'MEDIUM' });
+    ).createLocker({ code: 'A-01', size: 'MEDIUM', stationId: STATION_ID });
 
     expect(view.id).toBe('id-1');
     expect(view.availability).toBe('FREE');
@@ -103,17 +103,17 @@ describe('CreateLockerService', () => {
     expect(repo.saved[0].updatedAt).toEqual(repo.saved[0].createdAt);
   });
 
-  it('defaults to the seeded station when none is given', async () => {
+  it('creates the locker at the station it is given', async () => {
     const repo = new FakeLockerRepository();
     const view = await new CreateLockerService(
       repo,
       stations(),
       idGen(),
       clock,
-    ).createLocker({ code: 'B-02', size: 'SMALL' });
+    ).createLocker({ code: 'B-02', size: 'SMALL', stationId: STATION_ID });
 
-    expect(view.stationId).toBe(DEFAULT_STATION_ID);
-    expect(repo.saved[0].stationId).toBe(DEFAULT_STATION_ID);
+    expect(view.stationId).toBe(STATION_ID);
+    expect(repo.saved[0].stationId).toBe(STATION_ID);
   });
 
   it('rejects a duplicate (station, code)', async () => {
@@ -123,10 +123,18 @@ describe('CreateLockerService', () => {
       idGen(),
       clock,
     );
-    await service.createLocker({ code: 'A-01', size: 'SMALL' });
+    await service.createLocker({
+      code: 'A-01',
+      size: 'SMALL',
+      stationId: STATION_ID,
+    });
 
     await expect(
-      service.createLocker({ code: 'A-01', size: 'LARGE' }),
+      service.createLocker({
+        code: 'A-01',
+        size: 'LARGE',
+        stationId: STATION_ID,
+      }),
     ).rejects.toThrow(LockerCodeTakenError);
   });
 
@@ -136,6 +144,7 @@ describe('CreateLockerService', () => {
       new CreateLockerService(repo, stations(), idGen(), clock).createLocker({
         code: 'C',
         size: 'HUGE',
+        stationId: STATION_ID,
       }),
     ).rejects.toThrow(/Unknown locker size/);
     expect(repo.saved).toHaveLength(0);
@@ -152,7 +161,7 @@ describe('CreateLockerService', () => {
       ).createLocker({
         code: 'C-01',
         size: 'SMALL',
-        stationId: DEFAULT_STATION_ID,
+        stationId: STATION_ID,
       }),
     ).rejects.toThrow(StationNotFoundError);
     expect(repo.saved).toHaveLength(0);
@@ -168,7 +177,7 @@ describe('CreateLockerService', () => {
         stations(retired),
         idGen(),
         clock,
-      ).createLocker({ code: 'C-01', size: 'SMALL' }),
+      ).createLocker({ code: 'C-01', size: 'SMALL', stationId: STATION_ID }),
     ).rejects.toThrow(StationDecommissionedError);
     expect(repo.saved).toHaveLength(0);
   });

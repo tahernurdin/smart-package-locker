@@ -94,13 +94,13 @@ code), so no customer attribute is ever read.
 | GET | `/stations/:id` | Operator | read one station |
 | PATCH | `/stations/:id` | Operator | rename / relocate `{ name?, location? }` |
 | DELETE | `/stations/:id` | Operator | decommission; 409 `station_not_empty` while lockers stand there |
-| POST | `/lockers` | Operator | create locker `{ code, size, stationId? }`; 404 `station_not_found` / 409 `station_decommissioned` |
+| POST | `/lockers` | Operator | create locker `{ code, size, stationId }` (required); 404 `station_not_found` / 409 `station_decommissioned` |
 | GET | `/lockers` | Operator | list: code, size, service status, `FREE`/`OCCUPIED`, active package summary |
 | GET | `/lockers/:id` | Operator | read one locker (same row shape as the list) |
 | PATCH | `/lockers/:id` | Operator | relabel / service status `{ code?, status? }`; 409 `locker_code_taken` |
 | DELETE | `/lockers/:id` | Operator | decommission; 409 `locker_occupied` while a package is inside |
 | POST | `/packages` | Agent | register parcel `{ size, customerId, trackingRef? }` → `{ packageId, status: REGISTERED }` |
-| POST | `/packages/:id/store` | Agent | drop it → `{ packageId, lockerId, lockerCode, pickupCode, status: STORED }`; 409 `no_suitable_locker` / `package_already_stored` |
+| POST | `/packages/:id/store` | Agent | drop it at `{ stationId }` (validated) → `{ packageId, lockerId, lockerCode, pickupCode, status: STORED }`; 404 `station_not_found`, 409 `station_decommissioned` / `no_suitable_locker` / `package_already_stored` |
 | POST | `/packages/retrieve` | Customer | `{ lockerId, pickupCode }` → `{ packageId, retrievedAt, storageFee{amountMinor,currency} }`; 404/409 on invalid / already retrieved |
 | GET | `/health/live` | — | liveness — process only, no DB |
 | GET | `/health/ready` | — | readiness — `SELECT 1`, 503 when the DB is down |

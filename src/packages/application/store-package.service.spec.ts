@@ -10,6 +10,12 @@ import {
   PackageAlreadyStoredError,
   PackageNotFoundError,
 } from '../domain/errors.js';
+import {
+  StationDecommissionedError,
+  StationNotFoundError,
+} from '../../stations/domain/errors.js';
+import { LockerStation } from '../../stations/domain/locker-station.entity.js';
+import type { StationRepository } from '../../stations/domain/station.repository.js';
 import { Package } from '../domain/package.entity.js';
 import type {
   PackageRepository,
@@ -23,7 +29,11 @@ interface FreeLocker {
   size: LockerSize;
 }
 
-const free = (id: string, code: string, size: 'SMALL' | 'MEDIUM' | 'LARGE'): FreeLocker => ({
+const free = (
+  id: string,
+  code: string,
+  size: 'SMALL' | 'MEDIUM' | 'LARGE',
+): FreeLocker => ({
   id,
   code,
   size: LockerSize.of(size),
@@ -63,8 +73,12 @@ class FakePackageRepo implements PackageRepository {
   async saveRetrieval(): Promise<void> {}
 }
 
-const hasher = new PickupCodeHasher({ pickupCodePepper: '' } as AppConfiguration);
+const hasher = new PickupCodeHasher({
+  pickupCodePepper: '',
+} as AppConfiguration);
 const clock: Clock = { now: () => new Date('2026-06-02T00:00:00.000Z') };
+/** The station the agent is at — always explicit, there is no default. */
+const STATION_ID = 'station-1';
 
 function idGen(): IdGenerator {
   let n = 0;
@@ -84,19 +98,52 @@ function registeredPackage(size: 'SMALL' | 'MEDIUM' | 'LARGE'): Package {
   });
 }
 
-function service(repo: FakePackageRepo, code = '111111') {
-  return new StorePackageService(repo, fixedCode(code), hasher, idGen(), clock);
+const theStation = LockerStation.create({
+  id: STATION_ID,
+  name: 'North Depot',
+  now: new Date('2026-01-01T00:00:00.000Z'),
+});
+
+function stationRepo(
+  station: LockerStation | null = theStation,
+): StationRepository {
+  return { findById: async () => station } as unknown as StationRepository;
+}
+
+function service(
+  repo: FakePackageRepo,
+  code = '111111',
+  stations: StationRepository = stationRepo(),
+) {
+  return new StorePackageService(
+    repo,
+    stations,
+    fixedCode(code),
+    hasher,
+    idGen(),
+    clock,
+  );
 }
 
 describe('StorePackageService', () => {
   it('assigns the smallest locker that fits', async () => {
     const repo = new FakePackageRepo();
     await repo.save(registeredPackage('SMALL'));
-    repo.freeLockers = [free('m', 'M-01', 'MEDIUM'), free('s', 'S-01', 'SMALL')];
+    repo.freeLockers = [
+      free('m', 'M-01', 'MEDIUM'),
+      free('s', 'S-01', 'SMALL'),
+    ];
 
-    const result = await service(repo).store({ packageId: 'pkg-1' });
+    const result = await service(repo).store({
+      packageId: 'pkg-1',
+      stationId: STATION_ID,
+    });
 
-    expect(result).toMatchObject({ lockerId: 's', lockerCode: 'S-01', status: 'STORED' });
+    expect(result).toMatchObject({
+      lockerId: 's',
+      lockerCode: 'S-01',
+      status: 'STORED',
+    });
   });
 
   it('falls back to the next size up when smaller lockers are taken', async () => {
@@ -104,7 +151,10 @@ describe('StorePackageService', () => {
     await repo.save(registeredPackage('SMALL'));
     repo.freeLockers = [free('m', 'M-01', 'MEDIUM')];
 
-    const result = await service(repo).store({ packageId: 'pkg-1' });
+    const result = await service(repo).store({
+      packageId: 'pkg-1',
+      stationId: STATION_ID,
+    });
 
     expect(result.lockerId).toBe('m');
   });
@@ -114,26 +164,58 @@ describe('StorePackageService', () => {
     await repo.save(registeredPackage('LARGE'));
     repo.freeLockers = [free('s', 'S-01', 'SMALL')];
 
-    await expect(service(repo).store({ packageId: 'pkg-1' })).rejects.toThrow(
-      NoSuitableLockerError,
-    );
+    await expect(
+      service(repo).store({ packageId: 'pkg-1', stationId: STATION_ID }),
+    ).rejects.toThrow(NoSuitableLockerError);
   });
 
   it('throws PackageNotFoundError for an unknown package', async () => {
     await expect(
-      service(new FakePackageRepo()).store({ packageId: 'nope' }),
+      service(new FakePackageRepo()).store({
+        packageId: 'nope',
+        stationId: STATION_ID,
+      }),
     ).rejects.toThrow(PackageNotFoundError);
+  });
+
+  it('rejects an unknown station rather than reporting no locker', async () => {
+    const repo = new FakePackageRepo();
+    await repo.save(registeredPackage('SMALL'));
+    repo.freeLockers = [free('s', 'S-01', 'SMALL')];
+
+    await expect(
+      service(repo, '111111', stationRepo(null)).store({
+        packageId: 'pkg-1',
+        stationId: STATION_ID,
+      }),
+    ).rejects.toThrow(StationNotFoundError);
+    expect(repo.freeLockers).toHaveLength(1);
+  });
+
+  it('rejects a decommissioned station', async () => {
+    const repo = new FakePackageRepo();
+    await repo.save(registeredPackage('SMALL'));
+    repo.freeLockers = [free('s', 'S-01', 'SMALL')];
+    const retired = theStation.decommission(new Date('2026-05-01T00:00:00Z'));
+
+    await expect(
+      service(repo, '111111', stationRepo(retired)).store({
+        packageId: 'pkg-1',
+        stationId: STATION_ID,
+      }),
+    ).rejects.toThrow(StationDecommissionedError);
+    expect(repo.freeLockers).toHaveLength(1);
   });
 
   it('throws PackageAlreadyStoredError for a package that is already stored', async () => {
     const repo = new FakePackageRepo();
     await repo.save(registeredPackage('SMALL'));
     repo.freeLockers = [free('s', 'S-01', 'SMALL')];
-    await service(repo).store({ packageId: 'pkg-1' });
+    await service(repo).store({ packageId: 'pkg-1', stationId: STATION_ID });
 
-    await expect(service(repo).store({ packageId: 'pkg-1' })).rejects.toThrow(
-      PackageAlreadyStoredError,
-    );
+    await expect(
+      service(repo).store({ packageId: 'pkg-1', stationId: STATION_ID }),
+    ).rejects.toThrow(PackageAlreadyStoredError);
   });
 
   it('returns a 6-digit code and stores only its hash, with storedAt from the clock', async () => {
@@ -143,6 +225,7 @@ describe('StorePackageService', () => {
 
     const result = await service(repo, '482913').store({
       packageId: 'pkg-1',
+      stationId: STATION_ID,
       agentId: 'agent-9',
     });
 
@@ -160,7 +243,10 @@ describe('StorePackageService', () => {
     repo.freeLockers = [free('s', 'S-01', 'SMALL')];
     repo.reserveFailures = [new LockerJustTakenError()];
 
-    const result = await service(repo).store({ packageId: 'pkg-1' });
+    const result = await service(repo).store({
+      packageId: 'pkg-1',
+      stationId: STATION_ID,
+    });
     expect(result.status).toBe('STORED');
   });
 
@@ -174,8 +260,8 @@ describe('StorePackageService', () => {
       new LockerJustTakenError(),
     ];
 
-    await expect(service(repo).store({ packageId: 'pkg-1' })).rejects.toThrow(
-      LockerJustTakenError,
-    );
+    await expect(
+      service(repo).store({ packageId: 'pkg-1', stationId: STATION_ID }),
+    ).rejects.toThrow(LockerJustTakenError);
   });
 });

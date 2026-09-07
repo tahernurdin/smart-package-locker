@@ -11,12 +11,14 @@
 # day; the tiered per-day rates are exercised in test/level3.e2e-spec.ts (which
 # fakes the clock).
 #
-# Suggested order: mint tokens → create lockers → list → register → store → retrieve.
+# Suggested order: mint tokens → create a station → create lockers → list →
+# register → store → retrieve.
 
 @baseUrl = http://localhost:3000
 
-### The station seeded by migrations/002_seed.sql — lockers land here by default.
-@defaultStation = 00000000-0000-4000-8000-000000000000
+### The station seeded by migrations/002_seed.sql. Not a default — stationId is
+### required on POST /lockers and POST /packages/:id/store; this is just one to use.
+@seededStation = 00000000-0000-4000-8000-000000000000
 
 ###############################################################################
 # Health
@@ -113,21 +115,21 @@ POST {{baseUrl}}/lockers
 Authorization: Bearer {{operator}}
 Content-Type: application/json
 
-{ "code": "A-01", "size": "SMALL" }
+{ "code": "A-01", "size": "SMALL", "stationId": "{{seededStation}}" }
 
 ### Create a MEDIUM locker
 POST {{baseUrl}}/lockers
 Authorization: Bearer {{operator}}
 Content-Type: application/json
 
-{ "code": "A-02", "size": "MEDIUM" }
+{ "code": "A-02", "size": "MEDIUM", "stationId": "{{seededStation}}" }
 
 ### Create a LARGE locker
 POST {{baseUrl}}/lockers
 Authorization: Bearer {{operator}}
 Content-Type: application/json
 
-{ "code": "A-03", "size": "LARGE" }
+{ "code": "A-03", "size": "LARGE", "stationId": "{{seededStation}}" }
 
 ### Create a locker at an explicit station
 POST {{baseUrl}}/lockers
@@ -137,7 +139,7 @@ Content-Type: application/json
 {
   "code": "B-01",
   "size": "MEDIUM",
-  "stationId": "{{defaultStation}}"
+  "stationId": "{{seededStation}}"
 }
 
 ### List all lockers with availability
@@ -197,7 +199,7 @@ POST {{baseUrl}}/lockers
 Authorization: Bearer {{agent}}
 Content-Type: application/json
 
-{ "code": "X-99", "size": "SMALL" }
+{ "code": "X-99", "size": "SMALL", "stationId": "{{seededStation}}" }
 
 ### Negative: list lockers with no token → 401
 GET {{baseUrl}}/lockers
@@ -225,10 +227,13 @@ Content-Type: application/json
 ### Package id captured from the register response
 @packageId = {{registerPackage.response.body.packageId}}
 
-### Store it — the smallest fitting locker is chosen
+### Store it — the smallest fitting locker at that station is chosen
 # @name storePackage
 POST {{baseUrl}}/packages/{{packageId}}/store
 Authorization: Bearer {{agent}}
+Content-Type: application/json
+
+{ "stationId": "{{seededStation}}" }
 
 ### Values captured from the store response (used by retrieve below)
 @lockerId = {{storePackage.response.body.lockerId}}

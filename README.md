@@ -17,8 +17,14 @@ Built with NestJS + MySQL in a layered/clean architecture. See
 - **Retrieval is authorized by possession** (locker id + pickup code). The `CUSTOMER` role only
   gates the route; no customer identity is checked.
 - **Stations are this service's data**, unlike customers: `locker.station_id` references them,
-  `GET /lockers` joins them, and `POST /lockers` accepts one. So operators manage them directly
-  (`/stations`). Lockers land at the seeded default station when no `stationId` is given.
+  `GET /lockers` joins them, and `POST /lockers` requires one. So operators manage them directly
+  (`/stations`).
+- **There is no default station.** `stationId` is required on `POST /lockers` and on
+  `POST /packages/:id/store` — a locker is always created *at* a named station, and an agent is
+  always standing at one when they drop a parcel. Allocation never crosses stations. Both endpoints
+  validate it (`404 station_not_found` / `409 station_decommissioned`), so an unknown station is
+  never mistaken for "no locker fits". The migration seeds one station so a fresh deployment has
+  somewhere to start, but nothing falls back to it.
 - **Nothing is ever hard-deleted.** `DELETE` on a station or a locker *decommissions* it: the row
   stays (the assignment history that backs the fee calculation references it), it drops out of the
   default listing, and the allocator stops considering it. Decommissioning is terminal.
@@ -74,10 +80,16 @@ OP=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/js
 AGENT=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
       -d '{"role":"AGENT"}' | jq -r .token)
 
-# Operator: create lockers of each size
+# Operator: create a station (or reuse a seeded one: curl -s .../stations ... | jq -r '.[0].id')
+STATION=$(curl -sXPOST localhost:3000/stations -H "authorization: Bearer $OP" \
+  -H 'content-type: application/json' \
+  -d '{"name":"North Depot","location":"Level 2"}' | jq -r .id)
+
+# Operator: create lockers of each size at that station — stationId is required
 for s in SMALL MEDIUM LARGE; do
   curl -sXPOST localhost:3000/lockers -H "authorization: Bearer $OP" \
-    -H 'content-type: application/json' -d "{\"code\":\"A-$s\",\"size\":\"$s\"}"
+    -H 'content-type: application/json' \
+    -d "{\"code\":\"A-$s\",\"size\":\"$s\",\"stationId\":\"$STATION\"}"
 done
 
 # Operator: list lockers with availability + station (optional ?stationId=<uuid>)
@@ -88,8 +100,9 @@ PKG=$(curl -sXPOST localhost:3000/packages -H "authorization: Bearer $AGENT" \
   -H 'content-type: application/json' \
   -d '{"size":"SMALL","customerId":"11111111-1111-4111-8111-111111111111"}' | jq -r .packageId)
 
-# Agent: drop it in a locker — assigned the smallest locker that fits
-STORED=$(curl -sXPOST "localhost:3000/packages/$PKG/store" -H "authorization: Bearer $AGENT")
+# Agent: drop it in a locker at the station they're standing at — smallest fit wins
+STORED=$(curl -sXPOST "localhost:3000/packages/$PKG/store" -H "authorization: Bearer $AGENT" \
+  -H 'content-type: application/json' -d "{\"stationId\":\"$STATION\"}")
 echo "$STORED"
 # {"packageId":"…","lockerId":"…","lockerCode":"A-SMALL","pickupCode":"482913","status":"STORED"}
 
@@ -121,13 +134,13 @@ all three, so nothing leaks).
 | `GET` | `/stations/:id` | Operator | Read one station (retired ones included) |
 | `PATCH` | `/stations/:id` | Operator | Rename / relocate `{ name?, location? }` |
 | `DELETE` | `/stations/:id` | Operator | Decommission — `409` while it still has live lockers |
-| `POST` | `/lockers` | Operator | Create a locker `{ code, size, stationId? }` |
+| `POST` | `/lockers` | Operator | Create a locker `{ code, size, stationId }` |
 | `GET` | `/lockers` | Operator | List lockers (`FREE`/`OCCUPIED` + station); `?stationId=<uuid>`, `?includeDecommissioned=true` |
 | `GET` | `/lockers/:id` | Operator | Read one locker |
 | `PATCH` | `/lockers/:id` | Operator | Relabel / take out of service `{ code?, status? }` |
 | `DELETE` | `/lockers/:id` | Operator | Decommission — `409` while a package is inside |
 | `POST` | `/packages` | Agent | Register a parcel `{ size, customerId, trackingRef? }` → `{ packageId, status }` |
-| `POST` | `/packages/:id/store` | Agent | Drop it in the smallest fitting locker → `{ lockerId, lockerCode, pickupCode, status }` |
+| `POST` | `/packages/:id/store` | Agent | Drop it at a station `{ stationId }` → the smallest fitting locker there → `{ lockerId, lockerCode, pickupCode, status }` |
 | `POST` | `/packages/retrieve` | Customer | Retrieve `{ lockerId, pickupCode }` — opens the locker, returns the fee |
 
 Each `GET /lockers` row:

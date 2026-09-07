@@ -4,10 +4,10 @@ import type { Pool } from 'mysql2/promise';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module.js';
-import { DEFAULT_STATION_ID } from '../src/lockers/application/create-locker.service.js';
 import { loadConfiguration } from '../src/shared/config/configuration.js';
 import { runMigrations } from '../src/shared/database/migrator.js';
 import { MYSQL_POOL } from '../src/shared/database/mysql.pool.js';
+import { SEEDED_STATION_ID } from './seeded-station.js';
 
 /**
  * Operator management of stations and lockers: the full CRUD on both, and the
@@ -48,12 +48,12 @@ describe('Locker & station management (e2e)', () => {
     await pool.query('DELETE FROM package');
     await pool.query('DELETE FROM locker');
     await pool.query('DELETE FROM locker_station WHERE id <> :id', {
-      id: DEFAULT_STATION_ID,
+      id: SEEDED_STATION_ID,
     });
     // The seeded station is shared with the other suites — leave it as found.
     await pool.query(
       `UPDATE locker_station SET status = 'ACTIVE' WHERE id = :id`,
-      { id: DEFAULT_STATION_ID },
+      { id: SEEDED_STATION_ID },
     );
   });
 
@@ -85,12 +85,12 @@ describe('Locker & station management (e2e)', () => {
     op: string,
     code: string,
     size: string,
-    stationId?: string,
+    stationId: string = SEEDED_STATION_ID,
   ) {
     return http()
       .post('/lockers')
       .set('authorization', `Bearer ${op}`)
-      .send(stationId ? { code, size, stationId } : { code, size });
+      .send({ code, size, stationId });
   }
 
   describe('stations', () => {
@@ -239,6 +239,76 @@ describe('Locker & station management (e2e)', () => {
   });
 
   describe('lockers', () => {
+    it('requires an explicit stationId — there is no default station', async () => {
+      const op = await token('OPERATOR');
+      const agent = await token('AGENT');
+
+      await http()
+        .post('/lockers')
+        .set('authorization', `Bearer ${op}`)
+        .send({ code: 'NO-STATION', size: 'SMALL' })
+        .expect(400);
+
+      // Storing is the same: the agent says which station they are standing at.
+      await createLocker(op, 'S-01', 'SMALL').expect(201);
+      const registered = await http()
+        .post('/packages')
+        .set('authorization', `Bearer ${agent}`)
+        .send({ size: 'SMALL', customerId: CUSTOMER_ID })
+        .expect(201);
+
+      await http()
+        .post(`/packages/${registered.body.packageId}/store`)
+        .set('authorization', `Bearer ${agent}`)
+        .expect(400);
+
+      await http()
+        .post(`/packages/${registered.body.packageId}/store`)
+        .set('authorization', `Bearer ${agent}`)
+        .send({ stationId: SEEDED_STATION_ID })
+        .expect(200);
+    });
+
+    it('tells an agent the station is unknown rather than "no locker fits"', async () => {
+      const op = await token('OPERATOR');
+      const agent = await token('AGENT');
+      await createLocker(op, 'S-01', 'SMALL').expect(201);
+
+      const registered = await http()
+        .post('/packages')
+        .set('authorization', `Bearer ${agent}`)
+        .send({ size: 'SMALL', customerId: CUSTOMER_ID })
+        .expect(201);
+
+      const unknown = await http()
+        .post(`/packages/${registered.body.packageId}/store`)
+        .set('authorization', `Bearer ${agent}`)
+        .send({ stationId: UNKNOWN_UUID })
+        .expect(404);
+      expect(unknown.body.code).toBe('station_not_found');
+
+      // A retired station is a different answer again, not a silent miss.
+      const retiredId = await createStation(op, 'Closing Soon');
+      await http()
+        .delete(`/stations/${retiredId}`)
+        .set('authorization', `Bearer ${op}`)
+        .expect(200);
+
+      const retired = await http()
+        .post(`/packages/${registered.body.packageId}/store`)
+        .set('authorization', `Bearer ${agent}`)
+        .send({ stationId: retiredId })
+        .expect(409);
+      expect(retired.body.code).toBe('station_decommissioned');
+
+      // The parcel is untouched by either rejection — still storable.
+      await http()
+        .post(`/packages/${registered.body.packageId}/store`)
+        .set('authorization', `Bearer ${agent}`)
+        .send({ stationId: SEEDED_STATION_ID })
+        .expect(200);
+    });
+
     it('rejects a locker at an unknown station instead of failing on the FK', async () => {
       const op = await token('OPERATOR');
 
@@ -276,7 +346,7 @@ describe('Locker & station management (e2e)', () => {
         status: 'IN_SERVICE',
         availability: 'FREE',
         activePackageId: null,
-        stationId: DEFAULT_STATION_ID,
+        stationId: SEEDED_STATION_ID,
         stationName: 'Default Station',
       });
 
@@ -390,6 +460,7 @@ describe('Locker & station management (e2e)', () => {
         .expect(201);
       const stored = await http()
         .post(`/packages/${registered.body.packageId}/store`)
+        .send({ stationId: SEEDED_STATION_ID })
         .set('authorization', `Bearer ${agent}`)
         .expect(200);
 
@@ -438,6 +509,7 @@ describe('Locker & station management (e2e)', () => {
         .expect(201);
       const stored = await http()
         .post(`/packages/${registered.body.packageId}/store`)
+        .send({ stationId: SEEDED_STATION_ID })
         .set('authorization', `Bearer ${agent}`)
         .expect(409);
       expect(stored.body.code).toBe('no_suitable_locker');

@@ -24,6 +24,7 @@ import {
 } from '../application/store-package.service.js';
 import { RegisterPackageDto } from './dto/register-package.dto.js';
 import { RetrievePackageDto } from './dto/retrieve-package.dto.js';
+import { StorePackageDto } from './dto/store-package.dto.js';
 
 @Controller('packages')
 export class PackagesController {
@@ -45,9 +46,14 @@ export class PackagesController {
   @HttpCode(200)
   store(
     @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: StorePackageDto,
     @CurrentUser() user: AuthUser,
   ): Promise<StoredPackage> {
-    return this.storePackage.store({ packageId: id, agentId: user.sub });
+    return this.storePackage.store({
+      packageId: id,
+      stationId: dto.stationId,
+      agentId: user.sub,
+    });
   }
 
   @Post('retrieve')

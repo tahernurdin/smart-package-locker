@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { LockersModule } from '../lockers/lockers.module.js';
+import { StationsModule } from '../stations/stations.module.js';
 import { RegisterPackageService } from './application/register-package.service.js';
 import { RetrievePackageService } from './application/retrieve-package.service.js';
 import { StorePackageService } from './application/store-package.service.js';
@@ -12,7 +13,9 @@ import { TieredStorageFeePolicy } from './infrastructure/tiered-storage-fee.poli
 import { PackagesController } from './interface/packages.controller.js';
 
 @Module({
-  imports: [LockersModule],
+  // StationsModule for STATION_REPOSITORY: storing validates the station the
+  // agent names. The graph stays acyclic — packages → lockers → stations.
+  imports: [LockersModule, StationsModule],
   controllers: [PackagesController],
   providers: [
     RegisterPackageService,

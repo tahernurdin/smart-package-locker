@@ -7,6 +7,7 @@ import { AppModule } from '../src/app.module.js';
 import { loadConfiguration } from '../src/shared/config/configuration.js';
 import { runMigrations } from '../src/shared/database/migrator.js';
 import { MYSQL_POOL } from '../src/shared/database/mysql.pool.js';
+import { SEEDED_STATION_ID } from './seeded-station.js';
 
 /**
  * Level 2 retrieval flow against a real MySQL. Run: `docker compose up -d mysql`
@@ -64,6 +65,7 @@ describe('Level 2 — retrieval (e2e)', () => {
       .expect(201);
     const stored = await http()
       .post(`/packages/${registered.body.packageId}/store`)
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${agent}`)
       .expect(200);
     return {
@@ -80,7 +82,7 @@ describe('Level 2 — retrieval (e2e)', () => {
     await http()
       .post('/lockers')
       .set('authorization', `Bearer ${op}`)
-      .send({ code: 'A-01', size: 'MEDIUM' })
+      .send({ code: 'A-01', size: 'MEDIUM', stationId: SEEDED_STATION_ID })
       .expect(201);
     return { op, agent, ...(await registerAndStore(agent, 'MEDIUM')) };
   }

@@ -23,14 +23,10 @@ import {
 } from '../domain/locker.repository.js';
 import { toLockerViewAt, type LockerView } from './locker.view.js';
 
-/** The single seeded station (migrations/002_seed.sql). A valid v4 UUID so it
- *  passes `@IsUUID()` when a client passes it explicitly. */
-export const DEFAULT_STATION_ID = '00000000-0000-4000-8000-000000000000';
-
 export interface CreateLockerInput {
   code: string;
   size: string;
-  stationId?: string;
+  stationId: string;
 }
 
 @Injectable()
@@ -43,7 +39,7 @@ export class CreateLockerService {
   ) {}
 
   async createLocker(input: CreateLockerInput): Promise<LockerView> {
-    const stationId = input.stationId ?? DEFAULT_STATION_ID;
+    const { stationId } = input;
     const size = LockerSize.of(input.size);
     const code = input.code.trim();
 

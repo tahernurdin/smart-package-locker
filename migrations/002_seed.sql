@@ -1,7 +1,9 @@
 -- 002_seed.sql - reference + demo data. Idempotent (INSERT IGNORE).
 -- Sizes (SMALL/MEDIUM/LARGE) are an enum enforced by CHECK, not seeded data.
 
--- The single default station. Locker creation uses this when no station is given.
+-- One station to start from, so a fresh deployment isn't a chicken-and-egg. It is
+-- NOT a default: `POST /lockers` and `POST /packages/:id/store` both require an
+-- explicit stationId. Operators add their own through `POST /stations`.
 INSERT IGNORE INTO locker_station (id, name, location, status, created_at, updated_at) VALUES
   ('00000000-0000-4000-8000-000000000000', 'Default Station', 'HQ', 'ACTIVE',
    '2026-01-01 00:00:00.000000', '2026-01-01 00:00:00.000000');

@@ -8,6 +8,7 @@ import { CLOCK } from '../src/shared/clock/clock.js';
 import { loadConfiguration } from '../src/shared/config/configuration.js';
 import { runMigrations } from '../src/shared/database/migrator.js';
 import { MYSQL_POOL } from '../src/shared/database/mysql.pool.js';
+import { SEEDED_STATION_ID } from './seeded-station.js';
 
 const STORED_AT = '2026-06-01T00:00:00.000Z';
 const PLUS_7_DAYS = '2026-06-08T00:00:00.000Z';
@@ -76,7 +77,7 @@ describe('Level 3 — storage fees (e2e)', () => {
     await http()
       .post('/lockers')
       .set('authorization', `Bearer ${tokens.operator}`)
-      .send({ code, size })
+      .send({ code, size, stationId: SEEDED_STATION_ID })
       .expect(201);
     const registered = await http()
       .post('/packages')
@@ -85,6 +86,7 @@ describe('Level 3 — storage fees (e2e)', () => {
       .expect(201);
     const res = await http()
       .post(`/packages/${registered.body.packageId}/store`)
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${tokens.agent}`)
       .expect(200);
     return res.body as {
@@ -138,7 +140,9 @@ describe('Level 3 — storage fees (e2e)', () => {
       clock.current = new Date(PLUS_7_DAYS);
       const second = await store('SMALL', 'S-2');
       clock.current = new Date(PLUS_14_DAYS);
-      const res = await retrieve(second.lockerId, second.pickupCode).expect(200);
+      const res = await retrieve(second.lockerId, second.pickupCode).expect(
+        200,
+      );
 
       expect(res.body.storageFee.amountMinor).toBe(46000);
       expect(await snapshottedFee(first.packageId)).toBe(4600);

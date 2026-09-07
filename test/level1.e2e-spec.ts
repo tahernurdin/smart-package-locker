@@ -4,10 +4,10 @@ import type { Pool, RowDataPacket } from 'mysql2/promise';
 import request from 'supertest';
 import type { App } from 'supertest/types';
 import { AppModule } from '../src/app.module.js';
-import { DEFAULT_STATION_ID } from '../src/lockers/application/create-locker.service.js';
 import { loadConfiguration } from '../src/shared/config/configuration.js';
 import { runMigrations } from '../src/shared/database/migrator.js';
 import { MYSQL_POOL } from '../src/shared/database/mysql.pool.js';
+import { SEEDED_STATION_ID } from './seeded-station.js';
 
 /**
  * Full Level 1 flow against a real MySQL: register package -> store it -> list
@@ -67,7 +67,7 @@ describe('Level 1 (e2e)', () => {
     return http()
       .post('/lockers')
       .set('authorization', `Bearer ${op}`)
-      .send({ code, size });
+      .send({ code, size, stationId: SEEDED_STATION_ID });
   }
 
   async function registerPackage(
@@ -95,13 +95,11 @@ describe('Level 1 (e2e)', () => {
       .get('/lockers')
       .set('authorization', `Bearer ${op}`)
       .expect(200);
-    expect(listed.body.map((l: { availability: string }) => l.availability)).toEqual([
-      'FREE',
-      'FREE',
-      'FREE',
-    ]);
+    expect(
+      listed.body.map((l: { availability: string }) => l.availability),
+    ).toEqual(['FREE', 'FREE', 'FREE']);
     expect(listed.body[0]).toMatchObject({
-      stationId: DEFAULT_STATION_ID,
+      stationId: SEEDED_STATION_ID,
       stationName: 'Default Station',
       location: 'HQ',
     });
@@ -110,6 +108,7 @@ describe('Level 1 (e2e)', () => {
     const p1 = await registerPackage(agent, 'SMALL');
     const first = await http()
       .post(`/packages/${p1}/store`)
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${agent}`)
       .expect(200);
     expect(first.body.lockerCode).toBe('A-S');
@@ -128,6 +127,7 @@ describe('Level 1 (e2e)', () => {
     const p2 = await registerPackage(agent, 'SMALL');
     const second = await http()
       .post(`/packages/${p2}/store`)
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${agent}`)
       .expect(200);
     expect(second.body.lockerCode).toBe('A-M');
@@ -136,6 +136,7 @@ describe('Level 1 (e2e)', () => {
     const p3 = await registerPackage(agent, 'LARGE');
     const third = await http()
       .post(`/packages/${p3}/store`)
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${agent}`)
       .expect(200);
     expect(third.body.lockerCode).toBe('A-L');
@@ -144,6 +145,7 @@ describe('Level 1 (e2e)', () => {
     const p4 = await registerPackage(agent, 'SMALL');
     const full = await http()
       .post(`/packages/${p4}/store`)
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${agent}`)
       .expect(409);
     expect(full.body.code).toBe('no_suitable_locker');
@@ -156,11 +158,15 @@ describe('Level 1 (e2e)', () => {
     await http()
       .post('/packages')
       .set('authorization', `Bearer ${agent}`)
-      .send({ size: 'SMALL', customerId: '0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d' })
+      .send({
+        size: 'SMALL',
+        customerId: '0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d',
+      })
       .expect(201);
 
     await http()
       .post('/packages/0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/store')
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${agent}`)
       .expect(404);
   });
@@ -173,10 +179,12 @@ describe('Level 1 (e2e)', () => {
     const pkg = await registerPackage(agent, 'MEDIUM');
     await http()
       .post(`/packages/${pkg}/store`)
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${agent}`)
       .expect(200);
     const again = await http()
       .post(`/packages/${pkg}/store`)
+      .send({ stationId: SEEDED_STATION_ID })
       .set('authorization', `Bearer ${agent}`)
       .expect(409);
     expect(again.body.code).toBe('package_already_stored');
@@ -187,7 +195,7 @@ describe('Level 1 (e2e)', () => {
     await createLocker(op, 'F-1', 'SMALL').expect(201);
 
     const atDefault = await http()
-      .get(`/lockers?stationId=${DEFAULT_STATION_ID}`)
+      .get(`/lockers?stationId=${SEEDED_STATION_ID}`)
       .set('authorization', `Bearer ${op}`)
       .expect(200);
     expect(atDefault.body).toHaveLength(1);
@@ -210,7 +218,7 @@ describe('Level 1 (e2e)', () => {
     await http()
       .post('/lockers')
       .set('authorization', `Bearer ${agent}`)
-      .send({ code: 'X', size: 'SMALL' })
+      .send({ code: 'X', size: 'SMALL', stationId: SEEDED_STATION_ID })
       .expect(403);
 
     await http()
@@ -232,6 +240,7 @@ describe('Level 1 (e2e)', () => {
       packageIds.map((id) =>
         http()
           .post(`/packages/${id}/store`)
+          .send({ stationId: SEEDED_STATION_ID })
           .set('authorization', `Bearer ${agent}`)
           .then((r) => r.status),
       ),

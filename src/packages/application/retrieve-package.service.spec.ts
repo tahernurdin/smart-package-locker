@@ -1,4 +1,3 @@
-import { DEFAULT_STATION_ID } from '../../lockers/application/create-locker.service.js';
 import { Locker } from '../../lockers/domain/locker.entity.js';
 import { LockerSize } from '../../lockers/domain/locker-size.js';
 import type { LockerRepository } from '../../lockers/domain/locker.repository.js';
@@ -20,7 +19,7 @@ const config = { currency: 'AUD' } as AppConfiguration;
 function theLocker() {
   return Locker.create({
     id: 'l-1',
-    stationId: DEFAULT_STATION_ID,
+    stationId: 'station-1',
     code: 'A-01',
     size: LockerSize.of('SMALL'),
     now: new Date('2026-01-01T00:00:00Z'),
