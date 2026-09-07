@@ -1,6 +1,6 @@
 # Task 06 — Customers context
 
-**Level:** 1 · **Depends on:** 02, 03 · **Status:** Not started
+**Level:** 1 · **Depends on:** 02, 03 · **Status:** Done
 
 ## Goal
 

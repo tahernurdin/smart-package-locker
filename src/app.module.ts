@@ -3,6 +3,7 @@ import { AuthModule } from './shared/auth/auth.module.js';
 import { AppConfigModule } from './shared/config/config.module.js';
 import { DatabaseModule } from './shared/database/database.module.js';
 import { SharedKernelModule } from './shared/shared-kernel.module.js';
+import { CustomersModule } from './customers/customers.module.js';
 import { HealthModule } from './health/health.module.js';
 import { LockersModule } from './lockers/lockers.module.js';
 
@@ -14,6 +15,7 @@ import { LockersModule } from './lockers/lockers.module.js';
     AuthModule,
     HealthModule,
     LockersModule,
+    CustomersModule,
   ],
 })
 export class AppModule {}
