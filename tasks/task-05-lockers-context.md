@@ -1,6 +1,6 @@
 # Task 05 — Lockers context
 
-**Level:** 1 · **Depends on:** 02, 03, 04 · **Status:** Not started
+**Level:** 1 · **Depends on:** 02, 03, 04 · **Status:** Done
 
 ## Goal
 

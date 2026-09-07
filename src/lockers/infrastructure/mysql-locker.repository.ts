@@ -1,0 +1,101 @@
+import { Inject, Injectable } from '@nestjs/common';
+import type { Pool, RowDataPacket } from 'mysql2/promise';
+import { isDuplicateEntryError } from '../../shared/database/mysql-errors.js';
+import { MYSQL_POOL } from '../../shared/database/mysql.pool.js';
+import { LockerCodeTakenError } from '../domain/errors.js';
+import { Locker } from '../domain/locker.entity.js';
+import { LockerSize } from '../domain/locker-size.js';
+import type {
+  LockerOccupancy,
+  LockerRepository,
+} from '../domain/locker.repository.js';
+
+@Injectable()
+export class MysqlLockerRepository implements LockerRepository {
+  constructor(@Inject(MYSQL_POOL) private readonly pool: Pool) {}
+
+  async save(locker: Locker): Promise<void> {
+    try {
+      await this.pool.query(
+        `INSERT INTO locker
+           (id, station_id, code, size_code, status, created_at, updated_at)
+         VALUES
+           (:id, :stationId, :code, :sizeCode, :status, :createdAt, :updatedAt)`,
+        {
+          id: locker.id,
+          stationId: locker.stationId,
+          code: locker.code,
+          sizeCode: locker.size.code,
+          status: locker.status,
+          createdAt: locker.createdAt,
+          updatedAt: locker.updatedAt,
+        },
+      );
+    } catch (err) {
+      if (isDuplicateEntryError(err)) {
+        throw new LockerCodeTakenError(locker.stationId, locker.code);
+      }
+      throw err;
+    }
+  }
+
+  async existsByStationAndCode(
+    stationId: string,
+    code: string,
+  ): Promise<boolean> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT 1 FROM locker WHERE station_id = :stationId AND code = :code LIMIT 1`,
+      { stationId, code },
+    );
+    return rows.length > 0;
+  }
+
+  async listWithOccupancy(): Promise<LockerOccupancy[]> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT l.id, l.station_id, l.code, l.size_code, l.status,
+              l.created_at, l.updated_at,
+              p.id AS active_package_id
+       FROM locker l
+       JOIN locker_size s ON s.code = l.size_code
+       LEFT JOIN package p ON p.active_locker_id = l.id
+       ORDER BY s.\`rank\` ASC, l.code ASC`,
+    );
+    return rows.map((row) => ({
+      locker: this.toLocker(row),
+      activePackageId: (row.active_package_id as string | null) ?? null,
+    }));
+  }
+
+  async findAvailableSmallestFit(
+    stationId: string,
+    required: LockerSize,
+  ): Promise<Locker | null> {
+    const [rows] = await this.pool.query<RowDataPacket[]>(
+      `SELECT l.id, l.station_id, l.code, l.size_code, l.status,
+              l.created_at, l.updated_at
+       FROM locker l
+       JOIN locker_size s ON s.code = l.size_code
+       LEFT JOIN package p ON p.active_locker_id = l.id
+       WHERE l.station_id = :stationId
+         AND l.status = 'IN_SERVICE'
+         AND p.id IS NULL
+         AND s.\`rank\` >= :requiredRank
+       ORDER BY s.\`rank\` ASC, l.code ASC
+       LIMIT 1`,
+      { stationId, requiredRank: required.rank },
+    );
+    return rows.length ? this.toLocker(rows[0]) : null;
+  }
+
+  private toLocker(row: RowDataPacket): Locker {
+    return Locker.fromPersistence({
+      id: row.id as string,
+      stationId: row.station_id as string,
+      code: row.code as string,
+      size: LockerSize.of(row.size_code as string),
+      status: row.status as Locker['status'],
+      createdAt: row.created_at as Date,
+      updatedAt: row.updated_at as Date,
+    });
+  }
+}
