@@ -1,6 +1,6 @@
 # Task 03 — Shared kernel
 
-**Level:** 1 · **Depends on:** 01 · **Status:** Not started
+**Level:** 1 · **Depends on:** 01 · **Status:** Done
 
 ## Goal
 
