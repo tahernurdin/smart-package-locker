@@ -7,5 +7,8 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    // E2E specs share one MySQL — run them serially.
+    fileParallelism: false,
+    hookTimeout: 30_000,
   },
 });

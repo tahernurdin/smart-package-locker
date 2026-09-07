@@ -1,6 +1,6 @@
 # Task 08 — Level 1 end-to-end + docs
 
-**Level:** 1 · **Depends on:** 05, 07 · **Status:** Not started
+**Level:** 1 · **Depends on:** 05, 07 · **Status:** Done
 
 ## Goal
 
