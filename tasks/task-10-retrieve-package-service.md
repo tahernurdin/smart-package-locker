@@ -1,6 +1,6 @@
 # Task 10 — RetrievePackageService (+ fee-policy seam)
 
-**Level:** 2 · **Depends on:** 09 · **Status:** Not started
+**Level:** 2 · **Depends on:** 09 · **Status:** Done
 
 ## Goal
 
