@@ -421,29 +421,44 @@ npm run start:dev
 
 ## Tests
 
+Two suites, run by Vitest (not Jest), with different requirements: the unit suite needs nothing
+running, the e2e suite needs MySQL and Redis.
+
 ```bash
-npm run test                  # unit tests (no DB)
-npm run lint
+npm run test                       # unit — 41 specs, no DB, no Redis, no Docker
+npm run test:watch                 # the same, re-running on change
+npm run test:cov                   # the same, with a coverage report
+npm run lint                       # oxlint
+
 docker compose up -d mysql redis   # e2e needs both
-npm run test:e2e              # every test/*.e2e-spec.ts
+npm run test:e2e                   # every test/*.e2e-spec.ts
 ```
 
-Unit specs are `*.spec.ts` beside the code, driving domain objects and application services against
-in-memory fakes. E2E specs are `test/*.e2e-spec.ts`, running controller-to-DB against a real MySQL
-with no mocks: the Level 1–3 flows (L3 fakes the clock to age a package), station and locker
-management including the paged listing, storage-rate publishing and the seeded schedules, both
-package listings, the pickup-attempt limiter against a real Redis, and the health probes. Suites run serially and clear their tables between tests,
-keeping the rows seeded by `migrations/002_seed.sql`.
+**Unit specs** are `*.spec.ts` beside the code they cover, and they touch no I/O at all: repositories
+are in-memory fakes, the clock and the id/pickup-code generators are stubs, so a fee for a seven-day
+stay is asserted by handing the service a date rather than by waiting. They cover the domain objects
+that enforce their own invariants (`LockerSize`, `PickupCode`, `Package`, `LockerAssignment`,
+`Locker`, `LockerStation`, the storage-rate schedule and the fee calculator), every application
+service with its success path and each domain error it can raise, and the shared edges that
+everything else trusts — the exception filter's error-to-status mapping, the auth guards, pagination
+and config loading. That is the suite to run while writing code; it finishes in about two seconds.
+
+**E2E specs** are `test/*.e2e-spec.ts`, running controller-to-DB against a real MySQL with no mocks:
+the Level 1–3 flows (L3 fakes the clock to age a package), station and locker management including
+the paged listing, storage-rate publishing and the seeded schedules, both package listings, the
+pickup-attempt limiter against a real Redis, and the health probes. Suites run serially and clear
+their tables between tests, keeping the rows seeded by `migrations/002_seed.sql`.
 
 They run against **their own database** (`locker_test`, set by the checked-in `.env.test`), never
 the one you develop against. `test/global-setup.ts` creates it on first run; each suite applies the
 migrations. To point e2e elsewhere, set `DATABASE_URL` in the shell — it wins over both env files.
 
-Run one test file or case:
+Run one file or one case, in either suite:
 
 ```bash
 npx vitest run src/packages/application/store-package.service.spec.ts
 npx vitest run -t "assigns the smallest locker that fits"
+npx vitest run --config ./vitest.config.e2e.ts test/level2.e2e-spec.ts
 ```
 
 ## Design decisions
