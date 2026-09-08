@@ -91,51 +91,63 @@ curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
 
 ## Walkthrough
 
-```bash
-OP=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
-      -d '{"role":"OPERATOR"}' | jq -r .token)
-AGENT=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
-      -d '{"role":"AGENT"}' | jq -r .token)
+The whole story in one shell script — station, locker, drop, find, lost code, collect. Needs the API
+from [Quickstart](#quickstart-docker) and `jq`. For the exhaustive version, including every error
+path, use [`api.http`](api.http) instead: same flow, plus the negatives, as clickable requests.
 
-# Operator: create a station (or reuse a seeded one: curl -s .../stations ... | jq -r '.[0].id')
-STATION=$(curl -sXPOST localhost:3000/stations -H "authorization: Bearer $OP" \
+```bash
+mint() { curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
+           -d "$1" | jq -r .token; }
+
+OP_TOKEN=$(mint '{"role":"OPERATOR"}')
+AGENT_TOKEN=$(mint '{"role":"AGENT"}')
+
+# Operator: create a station (or reuse the seeded one: curl -s .../stations … | jq -r '.[0].id')
+STATION_ID=$(curl -sXPOST localhost:3000/stations -H "authorization: Bearer $OP_TOKEN" \
   -H 'content-type: application/json' \
   -d '{"name":"North Depot","location":"Level 2"}' | jq -r .id)
 
 # Operator: create lockers of each size at that station — stationId is required
 for s in SMALL MEDIUM LARGE; do
-  curl -sXPOST localhost:3000/lockers -H "authorization: Bearer $OP" \
+  curl -sXPOST localhost:3000/lockers -H "authorization: Bearer $OP_TOKEN" \
     -H 'content-type: application/json' \
-    -d "{\"code\":\"A-$s\",\"size\":\"$s\",\"stationId\":\"$STATION\"}"
+    -d "{\"code\":\"A-$s\",\"size\":\"$s\",\"stationId\":\"$STATION_ID\"}"
 done
 
 # Operator: list lockers with availability + station — a page of {items,total,limit,offset}
-curl -s "localhost:3000/lockers?stationId=$STATION&availability=FREE" -H "authorization: Bearer $OP"
+curl -s "localhost:3000/lockers?stationId=$STATION_ID&availability=FREE" \
+  -H "authorization: Bearer $OP_TOKEN"
 
 # Agent: register the parcel against a customerId (issued by the upstream customer service)
 CUSTOMER_ID=11111111-1111-4111-8111-111111111111
-PKG=$(curl -sXPOST localhost:3000/packages -H "authorization: Bearer $AGENT" \
+PACKAGE_ID=$(curl -sXPOST localhost:3000/packages -H "authorization: Bearer $AGENT_TOKEN" \
   -H 'content-type: application/json' \
   -d "{\"size\":\"SMALL\",\"customerId\":\"$CUSTOMER_ID\"}" | jq -r .packageId)
 
 # Agent: drop it in a locker at the station they're standing at — smallest fit wins
-STORED=$(curl -sXPOST "localhost:3000/packages/$PKG/store" -H "authorization: Bearer $AGENT" \
-  -H 'content-type: application/json' -d "{\"stationId\":\"$STATION\"}")
+STORED=$(curl -sXPOST "localhost:3000/packages/$PACKAGE_ID/store" \
+  -H "authorization: Bearer $AGENT_TOKEN" \
+  -H 'content-type: application/json' -d "{\"stationId\":\"$STATION_ID\"}")
 echo "$STORED"
-# {"packageId":"…","lockerId":"…","lockerCode":"A-SMALL","pickupCode":"482913","status":"STORED"}
+# {"packageId":"…","lockerId":"…","lockerCode":"A-SMALL","pickupCode":"312751","status":"STORED"}
+LOCKER_ID=$(jq -r .lockerId <<<"$STORED")
+PICKUP_CODE=$(jq -r .pickupCode <<<"$STORED")
 
-# Customer: see their own parcels (identity comes from the token subject)
-CUSTOMER=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
-      -d "{\"role\":\"CUSTOMER\",\"sub\":\"$CUSTOMER_ID\"}" | jq -r .token)
-curl -s 'localhost:3000/packages/mine?status=STORED' -H "authorization: Bearer $CUSTOMER"
+# Customer: find it in the app — which station, which door. Identity comes from the
+# token subject, so this lists their parcels and nobody else's
+CUSTOMER_TOKEN=$(mint "{\"role\":\"CUSTOMER\",\"sub\":\"$CUSTOMER_ID\"}")
+curl -s 'localhost:3000/packages/mine?status=STORED' -H "authorization: Bearer $CUSTOMER_TOKEN"
 
-# Station: the customer keys the code into the cabinet, which calls this with
-# its own token — there is no customer session at a keypad
-STATION_TOKEN=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
-      -d '{"role":"STATION"}' | jq -r .token)
+# Customer: lost the code? Ask the app for a new one — the old one dies here
+PICKUP_CODE=$(curl -sXPOST "localhost:3000/packages/$PACKAGE_ID/pickup-code" \
+  -H "authorization: Bearer $CUSTOMER_TOKEN" | jq -r .pickupCode)
+
+# Station: the customer keys that code into the cabinet, which calls this with its
+# own token — nobody is logged in at a keypad, so the code is the credential
+STATION_TOKEN=$(mint '{"role":"STATION"}')
 curl -sXPOST localhost:3000/packages/retrieve -H "authorization: Bearer $STATION_TOKEN" \
   -H 'content-type: application/json' \
-  -d "{\"lockerId\":$(jq .lockerId <<<"$STORED"),\"pickupCode\":$(jq .pickupCode <<<"$STORED")}"
+  -d "{\"lockerId\":\"$LOCKER_ID\",\"pickupCode\":\"$PICKUP_CODE\"}"
 # {"packageId":"…","lockerCode":"A-SMALL","retrievedAt":"…",
 #  "storageFee":{"amountMinor":0,"currency":"AUD"},"opened":true}
 # amountMinor is 0 here (picked up same day); see "Storage fees" below for the tiers.
