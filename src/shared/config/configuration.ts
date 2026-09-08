@@ -121,7 +121,14 @@ export function loadConfiguration(
     },
     authDevTokens: parseBool(env.AUTH_DEV_TOKENS, !isProduction),
     currency: env.CURRENCY ?? 'AUD',
-    pickupCodePepper: env.PICKUP_CODE_PEPPER ?? '',
+    // Required in production: it is the secret mixed into every pickup-code
+    // hash, and a code is only six digits — 10^6 possibilities, which is
+    // seconds of work for anyone holding `locker_assignment`. The pepper is
+    // what they would also need. An empty one leaves the hashes standing on
+    // the digits alone, and nothing at runtime would say so, so it fails here.
+    pickupCodePepper: isProduction
+      ? required('PICKUP_CODE_PEPPER', env.PICKUP_CODE_PEPPER)
+      : (env.PICKUP_CODE_PEPPER ?? 'dev-pickup-code-pepper'),
     retrievalLimit: {
       maxAttempts: Number(env.RETRIEVAL_MAX_ATTEMPTS ?? 5),
       lockoutSeconds: Number(env.RETRIEVAL_LOCKOUT_SECONDS ?? 900),

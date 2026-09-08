@@ -44,6 +44,11 @@ services:
       JWT_SECRET: dev-secret-change-me
       AUTH_DEV_TOKENS: 'true'
       CURRENCY: AUD
+      # Secret mixed into pickup-code hashes. Required whenever NODE_ENV is
+      # production, so the stack will not boot without it. A demo placeholder
+      # like JWT_SECRET above — a real deployment supplies a real secret, and
+      # changing it invalidates every outstanding pickup code.
+      PICKUP_CODE_PEPPER: dev-pepper-change-me
     ports:
       - '3000:3000'
     depends_on:

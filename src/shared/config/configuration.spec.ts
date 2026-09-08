@@ -37,6 +37,7 @@ describe('loadConfiguration', () => {
         NODE_ENV: 'production',
         JWT_SECRET: 's',
         REDIS_URL: 'redis://r:6379',
+        PICKUP_CODE_PEPPER: 'pep',
         DB_HOST: 'h',
         DB_USER: 'u',
         DB_PASSWORD: 'p',
@@ -79,12 +80,30 @@ describe('loadConfiguration', () => {
     ).toThrow(/REDIS_URL/);
   });
 
+  it('requires PICKUP_CODE_PEPPER in production', () => {
+    // Without it, a six-digit hash stands on the digits alone and a leaked
+    // `locker_assignment` gives every code up — and nothing at runtime would
+    // announce that, so it has to fail at boot.
+    expect(() =>
+      loadConfiguration({
+        NODE_ENV: 'production',
+        JWT_SECRET: 's',
+        REDIS_URL: 'redis://r:6379',
+        DB_HOST: 'h',
+        DB_USER: 'u',
+        DB_PASSWORD: 'p',
+        DB_NAME: 'd',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/PICKUP_CODE_PEPPER/);
+  });
+
   it('uses safe defaults in development', () => {
     const c = loadConfiguration(base);
     expect(c.port).toBe(3000);
     expect(c.currency).toBe('AUD');
     expect(c.jwt.secret).toBe('dev-secret-change-me');
     expect(c.redis.url).toBe('redis://127.0.0.1:6379');
+    expect(c.pickupCodePepper).toBe('dev-pickup-code-pepper');
     expect(c.retrievalLimit).toEqual({ maxAttempts: 5, lockoutSeconds: 900 });
   });
 });
