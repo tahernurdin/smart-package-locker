@@ -1,5 +1,5 @@
 -- 001_init.sql  (MySQL 8.0.16+ / 8.4)
--- MySQL-dialect port of the reference PostgreSQL schema (../001_init.sql).
+-- MySQL-dialect port of the reference PostgreSQL schema supplied with the brief.
 --
 -- Conventions
 --   * Money is BIGINT minor units (cents). Never floating point. Currency is

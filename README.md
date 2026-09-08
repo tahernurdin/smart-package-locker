@@ -4,10 +4,9 @@ A REST service where delivery **agents** store packages in size-appropriate lock
 **customers** retrieve them with a pickup code. **Operators** manage the stations, the lockers and
 the prices.
 
-Built with NestJS + MySQL in a layered/clean architecture. See
-[`docs/implementation-plan.md`](docs/implementation-plan.md) for the design and
-[`CLAUDE.md`](CLAUDE.md) for the engineering conventions. Work is tracked as task specs under
-[`tasks/`](tasks/); [`api.http`](api.http) is a ready-to-run request collection for the whole API.
+Built with NestJS + MySQL in a layered/clean architecture. [`CLAUDE.md`](CLAUDE.md) holds the
+engineering conventions, [Design decisions](#design-decisions) below covers the technical choices,
+and [`api.http`](api.http) is a ready-to-run request collection for the whole API.
 
 ## Status
 
@@ -260,9 +259,8 @@ assignment row (`level1.e2e-spec.ts`); 6 concurrent retrievals of one package �
 One property is deliberately left untested end to end: fan-out under `M` lockers and `N > M`
 concurrent stores — that exactly `M` succeed, on `M` **distinct** lockers, with no spurious
 `no_suitable_locker` from an agent queueing behind a peer. Layer 1 makes a double-book
-unrepresentable whatever the lock does, so what is unproven is throughput under contention, not
-correctness. [Task 20](tasks/task-20-lifecycle-and-contention-e2e.md) records the suite that would
-assert it.
+unrepresentable whatever the lock does, so what is unproven there is throughput under contention,
+not correctness.
 
 ## Managing lockers and stations
 
@@ -373,6 +371,42 @@ npx vitest run src/packages/application/store-package.service.spec.ts
 npx vitest run -t "assigns the smallest locker that fits"
 ```
 
+## Design decisions
+
+| Area | Choice | Why |
+|---|---|---|
+| DB access | `mysql2` pool + hand-written SQL, confined to `infrastructure/` | No ORM decorators in the domain; the adapter owns every query and the index it needs |
+| Schema | Plain `.sql` migrations + a small runner (`npm run db:migrate`, also applied on API boot) | One path for local, Docker and e2e; each file documents the decision it encodes |
+| IDs | App-generated UUID v4 stored as `CHAR(36)`, behind an `IdGenerator` port | Readable across tables, deterministic under test |
+| Time | Every `DATETIME(6)` supplied by the app through a `Clock` port, never a DB default | Fees depend on elapsed time, so tests must be able to age a package |
+| Pickup code | 6 digits, stored as a SHA-256 hash, compared with `crypto.timingSafeEqual`, returned in plaintext exactly once | No native deps, and the stored form collects nothing if the table leaks |
+| Auth | `@nestjs/jwt` + `JwtAuthGuard` + `RolesGuard` + `@Roles()`; `POST /auth/dev-token` is env-gated | The brief asks for a dummy token per role, not an identity provider |
+| Money | `BIGINT` minor units in one configured currency (`CURRENCY`, default `AUD`) | No floating-point money |
+| Roles | `OPERATOR`, `AGENT`, `CUSTOMER` | Per the brief |
+
+### Adapting the reference schema
+
+The brief ships a PostgreSQL reference model; `migrations/001_init.sql` is its MySQL port.
+
+- `gen_random_uuid()` / `timestamptz` → `CHAR(36)` and `DATETIME(6)` UTC, both supplied by the
+  application through the ports above.
+- **Partial unique index** `one_active_package_per_locker` → MySQL has no partial index, so
+  `active_locker_id` is a `STORED` generated column (the locker id while `retrieved_at IS NULL`,
+  `NULL` after) with a plain `UNIQUE` over it. Same guarantee; it is the Level 4 backstop above.
+- The reference `active_pickup_code` index is dropped — retrieval is by `{ lockerId, pickupCode }`,
+  so a code only has to be distinct *within* a locker, which the locker key already gives.
+- `EXCLUDE USING gist` (no overlapping rate bands) has no MySQL equivalent. A version's bands are
+  validated as a whole schedule in the domain at publish time, backed by
+  `uq_storage_rate_band (size_code, effective_from, from_day)` so a concurrent republish fails on
+  the key instead of double-charging a day, with a seed test over the shipped schedules.
+- `CHECK` constraints are kept — MySQL enforces them from 8.0.16, hence the `mysql:8.4` image.
+  `btree_gist`, `pgcrypto` and `int4range` are dropped.
+- The `locker_size` reference table is dropped. Size is a closed enum already modelled by the
+  `LockerSize` value object, so the table only restated its ordering — and a sort key living in a
+  joined table cannot be served by an index on `locker`. `size_code` carries a `CHECK`, and the
+  generated `size_rank` column carries `LockerSize.rank` for the allocation index
+  (`migrations/005_locker_size_rank.sql` has the measurement).
+
 ## Layout
 
 ```
@@ -388,13 +422,15 @@ src/
 migrations/       001 schema · 002 seed · 003 rate versions · 004 listing indexes
                   · 005 locker size rank — applied in order, tracked in schema_migrations
 test/             *.e2e-spec.ts against a real MySQL
-tasks/            per-task specs (L1: 01–08, L2: 09–12, L3: 15–17, split + L4: 18–21,
-                  CRUD: 22–24)
-docs/             implementation plan
 api.http          the whole API as runnable requests
 ```
 
 Dependencies point inward: HTTP → application → domain; infrastructure implements domain ports and
-is bound to them in each feature module. One deliberate exception: application services take the
-request DTO as their input type (`import type`, so nothing survives compilation) rather than
-restating every request shape as a second, identical interface — see [`CLAUDE.md`](CLAUDE.md).
+is bound to them in each feature module by token. The module graph is acyclic —
+`packages → lockers → stations` — which is why `countLiveLockers`, the guard on retiring a station,
+sits on `StationRepository` rather than `LockerRepository`: only the MySQL adapter knows it reads
+the `locker` table, and the port stays a plain question about a station.
+
+One deliberate exception to the layering: application services take the request DTO as their input
+type (`import type`, so nothing survives compilation) rather than restating every request shape as a
+second, identical interface — see [`CLAUDE.md`](CLAUDE.md).
