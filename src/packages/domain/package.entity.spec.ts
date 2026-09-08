@@ -37,6 +37,14 @@ describe('Package.register', () => {
   });
 });
 
+describe('Package.belongsTo', () => {
+  it('recognises only the customer it was registered for', () => {
+    const pkg = stored();
+    expect(pkg.belongsTo('c-1')).toBe(true);
+    expect(pkg.belongsTo('c-2')).toBe(false);
+  });
+});
+
 describe('Package.storeInLocker', () => {
   it('REGISTERED -> STORED and opens an active assignment', () => {
     const pkg = stored();

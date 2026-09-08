@@ -90,10 +90,17 @@ export class PackagesController {
     });
   }
 
+  /**
+   * Whose parcel it is comes from the token, so a pickup code is only good in
+   * the hands of the customer it was issued to.
+   */
   @Post('retrieve')
   @Auth(Role.Customer)
   @HttpCode(200)
-  retrieve(@Body() dto: RetrievePackageDto): Promise<RetrievedPackage> {
-    return this.retrievePackage.retrieve(dto);
+  retrieve(
+    @CurrentUser() user: AuthUser,
+    @Body() dto: RetrievePackageDto,
+  ): Promise<RetrievedPackage> {
+    return this.retrievePackage.retrieve(user.sub, dto);
   }
 }

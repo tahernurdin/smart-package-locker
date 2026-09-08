@@ -13,6 +13,7 @@ import type { StorageFeePolicy } from '../domain/storage-fee.policy.js';
 import { RetrievePackageService } from './retrieve-package.service.js';
 
 const CODE = '482913';
+const CUSTOMER = 'c-1';
 const hasher = new PickupCodeHasher({ pickupCodePepper: '' } as AppConfiguration);
 const config = { currency: 'AUD' } as AppConfiguration;
 
@@ -26,10 +27,10 @@ function theLocker() {
   });
 }
 
-function activePackage(code = CODE) {
+function activePackage(code = CODE, customerId = CUSTOMER) {
   return Package.register({
     id: 'p-1',
-    customerId: 'c-1',
+    customerId,
     size: LockerSize.of('SMALL'),
     now: new Date('2026-05-30T00:00:00.000Z'),
   }).storeInLocker({
@@ -79,7 +80,10 @@ describe('RetrievePackageService', () => {
       fee: 0,
     });
 
-    const result = await service.retrieve({ lockerId: 'l-1', pickupCode: CODE });
+    const result = await service.retrieve(CUSTOMER, {
+      lockerId: 'l-1',
+      pickupCode: CODE,
+    });
 
     expect(result).toEqual({
       packageId: 'p-1',
@@ -100,26 +104,42 @@ describe('RetrievePackageService', () => {
       fee: 1500,
     });
 
-    const result = await service.retrieve({ lockerId: 'l-1', pickupCode: CODE });
+    const result = await service.retrieve(CUSTOMER, {
+      lockerId: 'l-1',
+      pickupCode: CODE,
+    });
 
     expect(result.storageFee.amountMinor).toBe(1500);
     expect(saveRetrieval.mock.calls[0][0].assignment.storageFeeMinor).toBe(1500);
   });
 
-  it('fails the same way for an unknown locker, no active package, or a wrong code', async () => {
+  it('fails the same way for an unknown locker, no active package, a wrong code, or another customer', async () => {
     const unknownLocker = build({ locker: null });
     await expect(
-      unknownLocker.service.retrieve({ lockerId: 'l-1', pickupCode: CODE }),
+      unknownLocker.service.retrieve(CUSTOMER, {
+        lockerId: 'l-1',
+        pickupCode: CODE,
+      }),
     ).rejects.toThrow(PackageNotFoundForRetrievalError);
 
     const empty = build({ locker: theLocker(), pkg: null });
     await expect(
-      empty.service.retrieve({ lockerId: 'l-1', pickupCode: CODE }),
+      empty.service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: CODE }),
     ).rejects.toThrow(PackageNotFoundForRetrievalError);
 
     const wrongCode = build({ locker: theLocker(), pkg: activePackage() });
     await expect(
-      wrongCode.service.retrieve({ lockerId: 'l-1', pickupCode: '000000' }),
+      wrongCode.service.retrieve(CUSTOMER, {
+        lockerId: 'l-1',
+        pickupCode: '000000',
+      }),
+    ).rejects.toThrow(PackageNotFoundForRetrievalError);
+
+    // The right code in the wrong hands: same error, so it says nothing about
+    // whether that locker holds a parcel.
+    const stranger = build({ locker: theLocker(), pkg: activePackage() });
+    await expect(
+      stranger.service.retrieve('c-2', { lockerId: 'l-1', pickupCode: CODE }),
     ).rejects.toThrow(PackageNotFoundForRetrievalError);
   });
 
@@ -129,15 +149,26 @@ describe('RetrievePackageService', () => {
       pkg: activePackage(),
     });
     await expect(
-      service.retrieve({ lockerId: 'l-1', pickupCode: '111111' }),
+      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: '111111' }),
     ).rejects.toThrow();
+    expect(saveRetrieval).not.toHaveBeenCalled();
+  });
+
+  it('does not record a retrieval for a parcel registered to someone else', async () => {
+    const { service, saveRetrieval } = build({
+      locker: theLocker(),
+      pkg: activePackage(CODE, 'c-9'),
+    });
+    await expect(
+      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: CODE }),
+    ).rejects.toThrow(PackageNotFoundForRetrievalError);
     expect(saveRetrieval).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed pickup code', async () => {
     const { service } = build({ locker: theLocker(), pkg: activePackage() });
     await expect(
-      service.retrieve({ lockerId: 'l-1', pickupCode: '12' }),
+      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: '12' }),
     ).rejects.toThrow(InvalidPickupCodeError);
   });
 });

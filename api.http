@@ -51,16 +51,27 @@ Content-Type: application/json
 { "role": "AGENT" }
 
 ### Mint a CUSTOMER token
+# `sub` is the customer id the token speaks for — retrieve only opens a locker
+# holding a parcel registered against it, so it matches the customerId used in
+# the register block below.
 # @name customerToken
 POST {{baseUrl}}/auth/dev-token
 Content-Type: application/json
 
-{ "role": "CUSTOMER" }
+{ "role": "CUSTOMER", "sub": "11111111-1111-4111-8111-111111111111" }
+
+### Mint a CUSTOMER token for a different customer (for the negative below)
+# @name otherCustomerToken
+POST {{baseUrl}}/auth/dev-token
+Content-Type: application/json
+
+{ "role": "CUSTOMER", "sub": "22222222-2222-4222-8222-222222222222" }
 
 ### Tokens captured from the responses above
 @operator = {{operatorToken.response.body.token}}
 @agent = {{agentToken.response.body.token}}
 @customer = {{customerToken.response.body.token}}
+@otherCustomer = {{otherCustomerToken.response.body.token}}
 
 ###############################################################################
 # Stations (role: OPERATOR)
@@ -75,7 +86,7 @@ POST {{baseUrl}}/stations
 Authorization: Bearer {{operator}}
 Content-Type: application/json
 
-{ "name": "North Depot", "location": "Level 2, 14 Rundle St" }
+{ "name": "North Depota", "location": "Level 2, 14 Rundle St" }
 
 ### Station id captured from the response above
 @stationId = {{createStation.response.body.id}}
@@ -97,7 +108,7 @@ PATCH {{baseUrl}}/stations/{{stationId}}
 Authorization: Bearer {{operator}}
 Content-Type: application/json
 
-{ "name": "North Hub" }
+{ "name": "North Hub 2" }
 
 ### Decommission it — 409 station_not_empty while it still has live lockers
 DELETE {{baseUrl}}/stations/{{stationId}}
@@ -117,7 +128,7 @@ POST {{baseUrl}}/lockers
 Authorization: Bearer {{operator}}
 Content-Type: application/json
 
-{ "code": "A-01", "size": "SMALL", "stationId": "{{seededStation}}" }
+{ "code": "A-03", "size": "LARGE", "stationId": "{{seededStation}}" }
 
 ### Create a MEDIUM locker
 POST {{baseUrl}}/lockers
@@ -239,10 +250,10 @@ Content-Type: application/json
 
 {
   "sizeCode": "SMALL",
-  "effectiveFrom": "2031-03-01T00:00:00.000Z",
+  "effectiveFrom": "2030-03-01T00:00:00.000Z",
   "bands": [
     { "fromDay": 0, "toDay": 2, "rateMinor": 0 },
-    { "fromDay": 2, "toDay": null, "rateMinor": 750 }
+    { "fromDay": 2, "toDay": null, "rateMinor": 111 }
   ]
 }
 
@@ -353,8 +364,22 @@ Content-Type: application/json
 { "size": "SMALL", "customerId": "11111111-1111-4111-8111-111111111111" }
 
 ###############################################################################
-# Packages — retrieve (role: CUSTOMER; authorized by locker id + pickup code)
+# Packages — retrieve (role: CUSTOMER; authorized by locker id + pickup code,
+# and only for the customer the parcel was registered against — that comes from
+# the token's subject, never the body)
 ###############################################################################
+
+### Negative: another customer with the right code → 404 (retrieval_failed —
+### the same answer a wrong code gets). Send this before the block below: once
+### the parcel is collected every retrieval 404s and the point is lost.
+POST {{baseUrl}}/packages/retrieve
+Authorization: Bearer {{otherCustomer}}
+Content-Type: application/json
+
+{
+  "lockerId": "{{lockerId}}",
+  "pickupCode": "{{pickupCode}}"
+}
 
 ### Retrieve the package stored above
 POST {{baseUrl}}/packages/retrieve

@@ -48,7 +48,9 @@ describe('Level 3 — storage fees (e2e)', () => {
     tokens = {
       operator: await token('OPERATOR'),
       agent: await token('AGENT'),
-      customer: await token('CUSTOMER'),
+      // A customer's token carries their customer id as its subject — the
+      // parcels below are registered against that same id.
+      customer: await token('CUSTOMER', CUSTOMER_ID),
     };
   });
 
@@ -65,8 +67,11 @@ describe('Level 3 — storage fees (e2e)', () => {
 
   const http = () => request(app.getHttpServer());
 
-  async function token(role: string): Promise<string> {
-    const res = await http().post('/auth/dev-token').send({ role }).expect(201);
+  async function token(role: string, sub?: string): Promise<string> {
+    const res = await http()
+      .post('/auth/dev-token')
+      .send(sub === undefined ? { role } : { role, sub })
+      .expect(201);
     return res.body.token as string;
   }
 

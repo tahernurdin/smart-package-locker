@@ -91,6 +91,11 @@ export class Package {
     return this.assignment?.retrievedAt ?? null;
   }
 
+  /** A parcel is only ever released to the customer it was registered for. */
+  belongsTo(customerId: string): boolean {
+    return this.customerId === customerId;
+  }
+
   /** REGISTERED → STORED. Opens a fresh assignment for `lockerId`. */
   storeInLocker(params: {
     assignmentId: string;

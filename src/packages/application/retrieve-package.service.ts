@@ -30,6 +30,12 @@ export interface RetrievedPackage {
   opened: true;
 }
 
+/**
+ * Collection at the locker door. `customerId` is the authenticated subject the
+ * controller passes in — never a field on the request — so the pickup code
+ * alone opens nothing: it has to be presented by the customer the parcel was
+ * registered for.
+ */
 @Injectable()
 export class RetrievePackageService {
   constructor(
@@ -41,7 +47,10 @@ export class RetrievePackageService {
     @Inject(APP_CONFIG) private readonly config: AppConfiguration,
   ) {}
 
-  async retrieve(input: RetrievePackageDto): Promise<RetrievedPackage> {
+  async retrieve(
+    customerId: string,
+    input: RetrievePackageDto,
+  ): Promise<RetrievedPackage> {
     const pickupCode = PickupCode.of(input.pickupCode).value;
 
     const locker = await this.lockers.findById(input.lockerId);
@@ -49,6 +58,12 @@ export class RetrievePackageService {
 
     const pkg = await this.packages.findActiveByLocker(locker.id);
     if (!pkg) throw new PackageNotFoundForRetrievalError();
+
+    // Someone else's parcel fails exactly like a wrong code — the same 404, so
+    // a leaked code tells its finder nothing about what that locker holds.
+    if (!pkg.belongsTo(customerId)) {
+      throw new PackageNotFoundForRetrievalError();
+    }
 
     if (!this.hasher.verify(pickupCode, pkg.pickupCodeHash)) {
       throw new PackageNotFoundForRetrievalError();

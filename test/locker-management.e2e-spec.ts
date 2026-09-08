@@ -63,8 +63,11 @@ describe('Locker & station management (e2e)', () => {
 
   const http = () => request(app.getHttpServer());
 
-  async function token(role: string): Promise<string> {
-    const res = await http().post('/auth/dev-token').send({ role }).expect(201);
+  async function token(role: string, sub?: string): Promise<string> {
+    const res = await http()
+      .post('/auth/dev-token')
+      .send(sub === undefined ? { role } : { role, sub })
+      .expect(201);
     return res.body.token as string;
   }
 
@@ -487,8 +490,9 @@ describe('Locker & station management (e2e)', () => {
         .expect(409);
       expect(refused.body.code).toBe('locker_occupied');
 
-      // Once the customer collects it, the locker can be retired.
-      const customer = await token('CUSTOMER');
+      // Once the customer collects it, the locker can be retired. The token's
+      // subject is the customer the parcel was registered for.
+      const customer = await token('CUSTOMER', CUSTOMER_ID);
       await http()
         .post('/packages/retrieve')
         .set('authorization', `Bearer ${customer}`)

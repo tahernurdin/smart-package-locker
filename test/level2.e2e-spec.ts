@@ -49,13 +49,21 @@ describe('Level 2 — retrieval (e2e)', () => {
 
   const http = () => request(app.getHttpServer());
 
-  async function token(role: string): Promise<string> {
-    const res = await http().post('/auth/dev-token').send({ role }).expect(201);
+  async function token(role: string, sub?: string): Promise<string> {
+    const res = await http()
+      .post('/auth/dev-token')
+      .send(sub === undefined ? { role } : { role, sub })
+      .expect(201);
     return res.body.token as string;
   }
 
   // A customer id as it would arrive from the upstream customer service.
   const CUSTOMER_ID = '11111111-1111-4111-8111-111111111111';
+  const OTHER_CUSTOMER_ID = '22222222-2222-4222-8222-222222222222';
+
+  /** A customer's token carries their customer id as its subject. */
+  const customerToken = (customerId = CUSTOMER_ID) =>
+    token('CUSTOMER', customerId);
 
   async function registerAndStore(agent: string, size: string, code = 'A-01') {
     const registered = await http()
@@ -90,7 +98,7 @@ describe('Level 2 — retrieval (e2e)', () => {
   it('retrieves a package, returns a fee-0 confirmation, and frees the locker', async () => {
     const { op, agent, lockerId, pickupCode, packageId } =
       await seedStoredPackage();
-    const customer = await token('CUSTOMER');
+    const customer = await customerToken();
 
     const res = await http()
       .post('/packages/retrieve')
@@ -121,7 +129,7 @@ describe('Level 2 — retrieval (e2e)', () => {
 
   it('rejects every invalid retrieval the same way', async () => {
     const { lockerId, pickupCode } = await seedStoredPackage();
-    const customer = await token('CUSTOMER');
+    const customer = await customerToken();
     const retrieve = (body: Record<string, string>) =>
       http()
         .post('/packages/retrieve')
@@ -141,6 +149,27 @@ describe('Level 2 — retrieval (e2e)', () => {
     await retrieve({ lockerId: 'not-a-uuid', pickupCode: '12' }).expect(400);
   });
 
+  it('refuses another customer holding the right pickup code', async () => {
+    const { lockerId, pickupCode } = await seedStoredPackage();
+    const stranger = await customerToken(OTHER_CUSTOMER_ID);
+
+    // Indistinguishable from a wrong code, so a leaked code tells its finder
+    // nothing about what that locker holds.
+    const refused = await http()
+      .post('/packages/retrieve')
+      .set('authorization', `Bearer ${stranger}`)
+      .send({ lockerId, pickupCode })
+      .expect(404);
+    expect(refused.body.code).toBe('retrieval_failed');
+
+    // and the parcel is untouched: its own customer still collects it
+    await http()
+      .post('/packages/retrieve')
+      .set('authorization', `Bearer ${await customerToken()}`)
+      .send({ lockerId, pickupCode })
+      .expect(200);
+  });
+
   it('enforces role and authentication', async () => {
     const { agent, lockerId, pickupCode } = await seedStoredPackage();
 
@@ -158,7 +187,7 @@ describe('Level 2 — retrieval (e2e)', () => {
 
   it('retrieves a package at most once under concurrent requests', async () => {
     const { lockerId, pickupCode } = await seedStoredPackage();
-    const customer = await token('CUSTOMER');
+    const customer = await customerToken();
 
     const statuses = await Promise.all(
       Array.from({ length: 6 }, () =>

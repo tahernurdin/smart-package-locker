@@ -56,8 +56,8 @@ export class InvalidPickupCodeError extends ValidationDomainError {
 
 /**
  * One error for every "that doesn't match" case in retrieval — unknown locker,
- * no active package, wrong pickup code — so the response leaks nothing about
- * which part was wrong.
+ * no active package, someone else's parcel, wrong pickup code — so the response
+ * leaks nothing about which part was wrong.
  */
 export class PackageNotFoundForRetrievalError extends NotFoundDomainError {
   constructor() {
