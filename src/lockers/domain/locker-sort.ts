@@ -1,7 +1,7 @@
 import {
-  SORT_DIRECTIONS,
+  resolveSort,
   type Sort,
-  type SortDirection,
+  type SortSpec,
 } from '../../shared/pagination/sort.js';
 import { InvalidLockerSortError } from './errors.js';
 
@@ -28,32 +28,13 @@ export const DEFAULT_LOCKER_SORT: LockerSort = {
   direction: 'asc',
 };
 
-/**
- * Narrow a requested sort, falling back to the default field by field. The
- * query DTO's `@IsIn` binds only HTTP callers, so this re-checks rather than
- * trusting it.
- */
+const SPEC: SortSpec<LockerSortField> = {
+  fields: LOCKER_SORT_FIELDS,
+  fallback: DEFAULT_LOCKER_SORT,
+  invalid: (param, value, allowed) =>
+    new InvalidLockerSortError(param, value, allowed),
+};
+
 export function lockerSortOf(field?: string, direction?: string): LockerSort {
-  return {
-    field:
-      field === undefined ? DEFAULT_LOCKER_SORT.field : requireField(field),
-    direction:
-      direction === undefined
-        ? DEFAULT_LOCKER_SORT.direction
-        : requireDirection(direction),
-  };
-}
-
-function requireField(field: string): LockerSortField {
-  if (!(LOCKER_SORT_FIELDS as readonly string[]).includes(field)) {
-    throw new InvalidLockerSortError('sortBy', field, LOCKER_SORT_FIELDS);
-  }
-  return field as LockerSortField;
-}
-
-function requireDirection(direction: string): SortDirection {
-  if (!(SORT_DIRECTIONS as readonly string[]).includes(direction)) {
-    throw new InvalidLockerSortError('sortDir', direction, SORT_DIRECTIONS);
-  }
-  return direction as SortDirection;
+  return resolveSort(SPEC, field, direction);
 }

@@ -37,6 +37,17 @@ export class LockerJustTakenError extends ConflictDomainError {
   }
 }
 
+/** An unknown `sortBy`/`sortDir` on a package listing. */
+export class InvalidPackageSortError extends ValidationDomainError {
+  constructor(field: string, value: string, allowed: readonly string[]) {
+    super(
+      'invalid_package_sort',
+      `Unknown ${field}: ${value}. Expected one of ${allowed.join(', ')}`,
+      { field, value, allowed: [...allowed] },
+    );
+  }
+}
+
 export class InvalidPickupCodeError extends ValidationDomainError {
   constructor() {
     super('invalid_pickup_code', 'Pickup code must be exactly 6 digits');
@@ -57,6 +68,9 @@ export class PackageNotFoundForRetrievalError extends NotFoundDomainError {
 /** The package was retrieved by a concurrent request first. */
 export class PackageAlreadyRetrievedError extends ConflictDomainError {
   constructor() {
-    super('package_already_retrieved', 'This package has already been retrieved');
+    super(
+      'package_already_retrieved',
+      'This package has already been retrieved',
+    );
   }
 }
