@@ -2,7 +2,8 @@ export type DomainErrorKind =
   | 'not_found'
   | 'conflict'
   | 'validation'
-  | 'forbidden';
+  | 'forbidden'
+  | 'rate_limited';
 
 /**
  * Base class for expected, business-meaningful failures. Thrown from domain and
@@ -36,4 +37,23 @@ export abstract class ValidationDomainError extends DomainError {
 
 export abstract class ForbiddenDomainError extends DomainError {
   readonly kind = 'forbidden';
+}
+
+/**
+ * Too many attempts, come back later. `retryAfterSeconds` is required rather
+ * than optional: the filter turns it into the `Retry-After` header, and a 429
+ * that does not say when to return is one clients can only answer by retrying
+ * blindly.
+ */
+export abstract class RateLimitedDomainError extends DomainError {
+  readonly kind = 'rate_limited';
+
+  constructor(
+    code: string,
+    message: string,
+    readonly retryAfterSeconds: number,
+    details?: Record<string, unknown>,
+  ) {
+    super(code, message, { ...details, retryAfterSeconds });
+  }
 }

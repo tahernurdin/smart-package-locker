@@ -14,12 +14,33 @@ services:
       timeout: 5s
       retries: 20
 
+  # Backs the retrieval attempt limiter. `appendonly` so a restart does not
+  # wipe every active lockout — the counters are a security control, and one
+  # that forgets on demand is one an attacker can clear.
+  redis:
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'yes']
+    # Published so host-run e2e can reach it. 6379 is a port developers often
+    # already have a Redis on, and unlike 3306 that clash is common enough to
+    # be worth a knob: set REDIS_HOST_PORT to move it. The api container is
+    # unaffected either way — it reaches Redis over the compose network.
+    ports:
+      - '${REDIS_HOST_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   api:
     build: .
     environment:
       NODE_ENV: production
       PORT: 3000
       DATABASE_URL: mysql://root:root@mysql:3306/locker
+      REDIS_URL: redis://redis:6379
       JWT_SECRET: dev-secret-change-me
       AUTH_DEV_TOKENS: 'true'
       CURRENCY: AUD
@@ -27,6 +48,8 @@ services:
       - '3000:3000'
     depends_on:
       mysql:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     healthcheck:
       test:
@@ -43,3 +66,4 @@ services:
 
 volumes:
   mysql-data:
+  redis-data:

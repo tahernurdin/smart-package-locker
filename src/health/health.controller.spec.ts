@@ -1,15 +1,20 @@
 import { HttpStatus, ServiceUnavailableException } from '@nestjs/common';
 import type { Pool } from 'mysql2/promise';
+import type { RedisClient } from '../shared/redis/redis.client.js';
 import { HealthController } from './health.controller.js';
 import { HealthService } from './health.service.js';
 
-function controllerFor(query: () => Promise<unknown>) {
-  const pool = { query } as unknown as Pool;
-  return new HealthController(new HealthService(pool));
-}
-
 const reachable = () => Promise.resolve([[{ 1: 1 }], []]);
 const unreachable = () => Promise.reject(new Error('ECONNREFUSED'));
+
+function controllerFor(
+  query: () => Promise<unknown>,
+  ping: () => Promise<unknown> = () => Promise.resolve('PONG'),
+) {
+  const pool = { query } as unknown as Pool;
+  const redis = { ping } as unknown as RedisClient;
+  return new HealthController(new HealthService(pool, redis));
+}
 
 describe('HealthController', () => {
   it('stays live while the database is down', () => {
@@ -20,7 +25,15 @@ describe('HealthController', () => {
     await expect(controllerFor(reachable).ready()).resolves.toEqual({
       status: 'ok',
       db: 'up',
+      redis: 'up',
     });
+  });
+
+  it('stays ready when only Redis is down, and says so', async () => {
+    // Traffic must keep flowing: the one thing Redis backs fails open.
+    await expect(controllerFor(reachable, unreachable).ready()).resolves.toEqual(
+      { status: 'ok', db: 'up', redis: 'down' },
+    );
   });
 
   it('answers 503 when the database is unreachable', async () => {
@@ -35,6 +48,7 @@ describe('HealthController', () => {
     expect((error as ServiceUnavailableException).getResponse()).toEqual({
       status: 'error',
       db: 'down',
+      redis: 'up',
     });
   });
 });

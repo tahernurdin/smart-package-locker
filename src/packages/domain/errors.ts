@@ -1,6 +1,7 @@
 import {
   ConflictDomainError,
   NotFoundDomainError,
+  RateLimitedDomainError,
   ValidationDomainError,
 } from '../../shared/errors/domain-error.js';
 
@@ -62,6 +63,21 @@ export class InvalidPickupCodeError extends ValidationDomainError {
 export class PackageNotFoundForRetrievalError extends NotFoundDomainError {
   constructor() {
     super('retrieval_failed', 'No package matches that locker and pickup code');
+  }
+}
+
+/**
+ * Too many failed pickups at one locker by one customer. Raised before the
+ * request is looked at, so it says nothing about the locker either — only that
+ * this caller has been asking too often.
+ */
+export class TooManyRetrievalAttemptsError extends RateLimitedDomainError {
+  constructor(retryAfterSeconds: number) {
+    super(
+      'too_many_retrieval_attempts',
+      'Too many failed attempts for this locker. Try again later',
+      retryAfterSeconds,
+    );
   }
 }
 

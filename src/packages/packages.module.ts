@@ -9,9 +9,11 @@ import { RetrievePackageService } from './application/retrieve-package.service.j
 import { StorePackageService } from './application/store-package.service.js';
 import { PACKAGE_LISTING_REPOSITORY } from './domain/package-listing.repository.js';
 import { PACKAGE_REPOSITORY } from './domain/package.repository.js';
+import { PICKUP_ATTEMPT_LIMITER } from './domain/pickup-attempt-limiter.js';
 import { STORAGE_FEE_POLICY } from './domain/storage-fee.policy.js';
 import { MysqlPackageListingRepository } from './infrastructure/mysql-package-listing.repository.js';
 import { MysqlPackageRepository } from './infrastructure/mysql-package.repository.js';
+import { RedisPickupAttemptLimiter } from './infrastructure/redis-pickup-attempt-limiter.js';
 import { TieredStorageFeePolicy } from './infrastructure/tiered-storage-fee.policy.js';
 import { PackagesController } from './interface/packages.controller.js';
 
@@ -35,6 +37,7 @@ import { PackagesController } from './interface/packages.controller.js';
       useClass: MysqlPackageListingRepository,
     },
     { provide: STORAGE_FEE_POLICY, useClass: TieredStorageFeePolicy },
+    { provide: PICKUP_ATTEMPT_LIMITER, useClass: RedisPickupAttemptLimiter },
   ],
 })
 export class PackagesModule {}

@@ -170,6 +170,61 @@ describe('Level 2 — retrieval (e2e)', () => {
       .expect(200);
   });
 
+  it('blocks a customer after five wrong codes at the same locker', async () => {
+    const { lockerId, pickupCode } = await seedStoredPackage();
+    const customer = await customerToken();
+    const attempt = (code: string) =>
+      http()
+        .post('/packages/retrieve')
+        .set('authorization', `Bearer ${customer}`)
+        .send({ lockerId, pickupCode: code });
+
+    // Six candidates so that dropping the one that happens to be the real code
+    // still leaves five wrong ones.
+    const wrong = ['100000', '100001', '100002', '100003', '100004', '100005']
+      .filter((c) => c !== pickupCode)
+      .slice(0, 5);
+    for (const code of wrong) await attempt(code).expect(404);
+
+    const blocked = await attempt('999999').expect(429);
+    expect(blocked.body.code).toBe('too_many_retrieval_attempts');
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+
+    // The right code is refused too — that is the point of the block.
+    await attempt(pickupCode).expect(429);
+  });
+
+  it('does not spend the budget on failures that are not code guesses', async () => {
+    const { lockerId, pickupCode } = await seedStoredPackage();
+    const customer = await customerToken();
+    const stranger = await customerToken(OTHER_CUSTOMER_ID);
+
+    // Five refusals that are not guesses: an unknown locker, and someone
+    // else's parcel. Neither is a wrong code, so neither is counted.
+    for (let i = 0; i < 5; i++) {
+      await http()
+        .post('/packages/retrieve')
+        .set('authorization', `Bearer ${customer}`)
+        .send({
+          lockerId: '0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d',
+          pickupCode: '123456',
+        })
+        .expect(404);
+      await http()
+        .post('/packages/retrieve')
+        .set('authorization', `Bearer ${stranger}`)
+        .send({ lockerId, pickupCode })
+        .expect(404);
+    }
+
+    // and the customer still collects normally
+    await http()
+      .post('/packages/retrieve')
+      .set('authorization', `Bearer ${customer}`)
+      .send({ lockerId, pickupCode })
+      .expect(200);
+  });
+
   it('enforces role and authentication', async () => {
     const { agent, lockerId, pickupCode } = await seedStoredPackage();
 

@@ -27,11 +27,19 @@ describe('Health (e2e)', () => {
     expect(res.body).toEqual({ status: 'ok' });
   });
 
-  it('GET /health/ready reports the db up', async () => {
-    const res = await request(app.getHttpServer())
-      .get('/health/ready')
-      .expect(200);
-    expect(res.body).toEqual({ status: 'ok', db: 'up' });
+  it('GET /health/ready reports the db and redis up', async () => {
+    // Polled because boot does not wait on Redis: the client connects in the
+    // background, so a probe fired immediately after `app.init()` can honestly
+    // answer `redis: 'down'` for a few milliseconds. It never gates the
+    // verdict, which is why that is reported rather than fatal.
+    await expect
+      .poll(async () => {
+        const res = await request(app.getHttpServer())
+          .get('/health/ready')
+          .expect(200);
+        return res.body;
+      })
+      .toEqual({ status: 'ok', db: 'up', redis: 'up' });
   });
 
   it('GET /health is not a route', async () => {

@@ -1,5 +1,8 @@
 import { HttpStatus, Logger, NotFoundException } from '@nestjs/common';
-import { ConflictDomainError } from './domain-error.js';
+import {
+  ConflictDomainError,
+  RateLimitedDomainError,
+} from './domain-error.js';
 import { DomainExceptionFilter } from './domain-exception.filter.js';
 
 class LockerTakenError extends ConflictDomainError {
@@ -8,13 +11,20 @@ class LockerTakenError extends ConflictDomainError {
   }
 }
 
+class SlowDownError extends RateLimitedDomainError {
+  constructor(retryAfterSeconds: number) {
+    super('slow_down', 'Too many attempts', retryAfterSeconds);
+  }
+}
+
 function mockHost() {
   const json = vi.fn();
   const status = vi.fn(() => ({ json }));
+  const setHeader = vi.fn();
   const host = {
-    switchToHttp: () => ({ getResponse: () => ({ status }) }),
+    switchToHttp: () => ({ getResponse: () => ({ status, setHeader }) }),
   } as never;
-  return { host, status, json };
+  return { host, status, json, setHeader };
 }
 
 describe('DomainExceptionFilter', () => {
@@ -31,6 +41,25 @@ describe('DomainExceptionFilter', () => {
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'locker_taken', statusCode: 409 }),
     );
+  });
+
+  it('maps a rate-limited domain error to 429 and says when to come back', () => {
+    const { host, status, json, setHeader } = mockHost();
+    filter.catch(new SlowDownError(900), host);
+    expect(status).toHaveBeenCalledWith(HttpStatus.TOO_MANY_REQUESTS);
+    expect(setHeader).toHaveBeenCalledWith('Retry-After', '900');
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: 'slow_down',
+        details: { retryAfterSeconds: 900 },
+      }),
+    );
+  });
+
+  it('sets no Retry-After on errors that are not rate limits', () => {
+    const { host, setHeader } = mockHost();
+    filter.catch(new LockerTakenError(), host);
+    expect(setHeader).not.toHaveBeenCalled();
   });
 
   it('passes an HttpException through', () => {

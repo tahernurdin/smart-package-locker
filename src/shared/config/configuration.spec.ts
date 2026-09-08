@@ -36,6 +36,7 @@ describe('loadConfiguration', () => {
       loadConfiguration({
         NODE_ENV: 'production',
         JWT_SECRET: 's',
+        REDIS_URL: 'redis://r:6379',
         DB_HOST: 'h',
         DB_USER: 'u',
         DB_PASSWORD: 'p',
@@ -54,6 +55,7 @@ describe('loadConfiguration', () => {
     expect(() =>
       loadConfiguration({
         NODE_ENV: 'production',
+        REDIS_URL: 'redis://r:6379',
         DB_HOST: 'h',
         DB_USER: 'u',
         DB_PASSWORD: 'p',
@@ -62,10 +64,27 @@ describe('loadConfiguration', () => {
     ).toThrow(/JWT_SECRET/);
   });
 
+  it('requires REDIS_URL in production', () => {
+    // The attempt limiter fails open, so a missing URL would not announce
+    // itself at runtime — it would just quietly stop limiting.
+    expect(() =>
+      loadConfiguration({
+        NODE_ENV: 'production',
+        JWT_SECRET: 's',
+        DB_HOST: 'h',
+        DB_USER: 'u',
+        DB_PASSWORD: 'p',
+        DB_NAME: 'd',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/REDIS_URL/);
+  });
+
   it('uses safe defaults in development', () => {
     const c = loadConfiguration(base);
     expect(c.port).toBe(3000);
     expect(c.currency).toBe('AUD');
     expect(c.jwt.secret).toBe('dev-secret-change-me');
+    expect(c.redis.url).toBe('redis://127.0.0.1:6379');
+    expect(c.retrievalLimit).toEqual({ maxAttempts: 5, lockoutSeconds: 900 });
   });
 });

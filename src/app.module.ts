@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from './shared/auth/auth.module.js';
 import { AppConfigModule } from './shared/config/config.module.js';
 import { DatabaseModule } from './shared/database/database.module.js';
+import { RedisModule } from './shared/redis/redis.module.js';
 import { SharedKernelModule } from './shared/shared-kernel.module.js';
 import { DevTokenModule } from './dev-token/dev-token.module.js';
 import { HealthModule } from './health/health.module.js';
@@ -14,6 +15,7 @@ import { StorageRatesModule } from './storage-rates/storage-rates.module.js';
   imports: [
     AppConfigModule,
     DatabaseModule,
+    RedisModule,
     SharedKernelModule,
     AuthModule,
     DevTokenModule,

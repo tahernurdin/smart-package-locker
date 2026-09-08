@@ -9,7 +9,14 @@ import {
   type AppConfiguration,
 } from '../../shared/config/configuration.js';
 import { PickupCodeHasher } from '../../shared/pickup-code/pickup-code-hasher.js';
-import { PackageNotFoundForRetrievalError } from '../domain/errors.js';
+import {
+  PackageNotFoundForRetrievalError,
+  TooManyRetrievalAttemptsError,
+} from '../domain/errors.js';
+import {
+  PICKUP_ATTEMPT_LIMITER,
+  type PickupAttemptLimiter,
+} from '../domain/pickup-attempt-limiter.js';
 import {
   PACKAGE_REPOSITORY,
   type PackageRepository,
@@ -45,12 +52,19 @@ export class RetrievePackageService {
     private readonly hasher: PickupCodeHasher,
     @Inject(CLOCK) private readonly clock: Clock,
     @Inject(APP_CONFIG) private readonly config: AppConfiguration,
+    @Inject(PICKUP_ATTEMPT_LIMITER)
+    private readonly attempts: PickupAttemptLimiter,
   ) {}
 
   async retrieve(
     customerId: string,
     input: RetrievePackageDto,
   ): Promise<RetrievedPackage> {
+    // Before anything is looked up, so a blocked caller learns nothing from
+    // how long the answer took or which error came back.
+    const block = await this.attempts.check(customerId, input.lockerId);
+    if (block) throw new TooManyRetrievalAttemptsError(block.retryAfterSeconds);
+
     const pickupCode = PickupCode.of(input.pickupCode).value;
 
     const locker = await this.lockers.findById(input.lockerId);
@@ -65,7 +79,12 @@ export class RetrievePackageService {
       throw new PackageNotFoundForRetrievalError();
     }
 
+    // The only counted failure: a real parcel of the caller's own, opened with
+    // the wrong code. That is the guess a limiter can meaningfully cap, and
+    // narrowing it here keeps an honest customer who mistypes a locker id, or
+    // returns to one already emptied, from spending their budget on it.
     if (!this.hasher.verify(pickupCode, pkg.pickupCodeHash)) {
+      await this.attempts.recordFailure(customerId, locker.id);
       throw new PackageNotFoundForRetrievalError();
     }
 
@@ -78,6 +97,10 @@ export class RetrievePackageService {
 
     const retrieved = pkg.retrieve({ now, storageFeeMinor: amountMinor });
     await this.packages.saveRetrieval(retrieved);
+    // Only after the parcel is actually out. Losing the race to a concurrent
+    // request throws from `saveRetrieval` and is not a failed attempt either —
+    // nothing was guessed — so it neither counts nor clears.
+    await this.attempts.clear(customerId, locker.id);
 
     return {
       packageId: retrieved.id,
@@ -88,4 +111,5 @@ export class RetrievePackageService {
       opened: true,
     };
   }
+
 }

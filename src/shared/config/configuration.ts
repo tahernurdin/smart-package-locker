@@ -15,15 +15,27 @@ export interface DatabaseConfig {
   database: string;
 }
 
+/**
+ * How many failed pickups a customer gets at one locker door, and how long the
+ * door stays shut to them afterwards. Policy, so it is configuration rather
+ * than constants buried in the service.
+ */
+export interface RetrievalLimitConfig {
+  maxAttempts: number;
+  lockoutSeconds: number;
+}
+
 export interface AppConfiguration {
   nodeEnv: AppEnv;
   isProduction: boolean;
   port: number;
   database: DatabaseConfig;
+  redis: { url: string };
   jwt: { secret: string; expiresIn: string };
   authDevTokens: boolean;
   currency: string;
   pickupCodePepper: string;
+  retrievalLimit: RetrievalLimitConfig;
 }
 
 export class ConfigError extends Error {}
@@ -83,6 +95,13 @@ export function loadConfiguration(
     isProduction,
     port: Number(env.PORT ?? 3000),
     database: parseDatabase(env, isProduction),
+    // Required in production: the retrieval limiter fails open, so a URL left
+    // pointing at localhost would disable it in a way nothing else notices.
+    redis: {
+      url: isProduction
+        ? required('REDIS_URL', env.REDIS_URL)
+        : (env.REDIS_URL ?? 'redis://127.0.0.1:6379'),
+    },
     jwt: {
       secret: isProduction
         ? required('JWT_SECRET', env.JWT_SECRET)
@@ -92,5 +111,9 @@ export function loadConfiguration(
     authDevTokens: parseBool(env.AUTH_DEV_TOKENS, !isProduction),
     currency: env.CURRENCY ?? 'AUD',
     pickupCodePepper: env.PICKUP_CODE_PEPPER ?? '',
+    retrievalLimit: {
+      maxAttempts: Number(env.RETRIEVAL_MAX_ATTEMPTS ?? 5),
+      lockoutSeconds: Number(env.RETRIEVAL_LOCKOUT_SECONDS ?? 900),
+    },
   };
 }

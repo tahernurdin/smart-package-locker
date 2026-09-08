@@ -367,6 +367,12 @@ Content-Type: application/json
 # Packages — retrieve (role: CUSTOMER; authorized by locker id + pickup code,
 # and only for the customer the parcel was registered against — that comes from
 # the token's subject, never the body)
+#
+# Five wrong codes at one locker and that customer is turned away from it for
+# 15 minutes (429, with Retry-After). Only wrong codes count, so the negative
+# blocks below do not spend the budget. Sending the wrong-code block six times
+# is how you see it; the counter is in Redis under
+# retrieval:attempts:<customerId>:<lockerId> and clears on a successful pickup.
 ###############################################################################
 
 ### Negative: another customer with the right code → 404 (retrieval_failed —

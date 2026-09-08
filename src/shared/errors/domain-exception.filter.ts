@@ -7,13 +7,18 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { DomainError, type DomainErrorKind } from './domain-error.js';
+import {
+  DomainError,
+  RateLimitedDomainError,
+  type DomainErrorKind,
+} from './domain-error.js';
 
 const STATUS_BY_KIND: Record<DomainErrorKind, HttpStatus> = {
   not_found: HttpStatus.NOT_FOUND,
   conflict: HttpStatus.CONFLICT,
   validation: HttpStatus.UNPROCESSABLE_ENTITY,
   forbidden: HttpStatus.FORBIDDEN,
+  rate_limited: HttpStatus.TOO_MANY_REQUESTS,
 };
 
 /**
@@ -31,6 +36,9 @@ export class DomainExceptionFilter implements ExceptionFilter {
 
     if (exception instanceof DomainError) {
       const status = STATUS_BY_KIND[exception.kind];
+      if (exception instanceof RateLimitedDomainError) {
+        res.setHeader('Retry-After', String(exception.retryAfterSeconds));
+      }
       res.status(status).json({
         statusCode: status,
         code: exception.code,
