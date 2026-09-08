@@ -18,14 +18,22 @@ describe('packageSortOf', () => {
   });
 
   it('defaults each half independently', () => {
-    expect(packageSortOf('status')).toEqual({
-      field: 'status',
+    expect(packageSortOf('station')).toEqual({
+      field: 'station',
       direction: 'desc',
     });
     expect(packageSortOf(undefined, 'asc')).toEqual({
       field: 'registeredAt',
       direction: 'asc',
     });
+  });
+
+  // `status` and `size` are filters: three values make a grouping, not a sort.
+  // `ORDER BY p.status` was also alphabetical, putting RETRIEVED before STORED.
+  it('does not offer the low-cardinality fields as sorts', () => {
+    for (const field of ['status', 'size']) {
+      expect(() => packageSortOf(field)).toThrow(InvalidPackageSortError);
+    }
   });
 
   // The DTO's @IsIn binds HTTP callers only; nothing unvetted may reach ORDER BY.

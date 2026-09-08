@@ -5,7 +5,6 @@ import {
   isMissingReferenceError,
 } from '../../shared/database/mysql-errors.js';
 import { MYSQL_POOL } from '../../shared/database/mysql.pool.js';
-import { sizeOrderExpr } from '../../shared/database/size-order.js';
 import { StationNotFoundError } from '../../stations/domain/errors.js';
 import { LockerCodeTakenError } from '../domain/errors.js';
 import { Locker } from '../domain/locker.entity.js';
@@ -47,13 +46,15 @@ const LIST_WHERE = `
          OR l.status <> 'DECOMMISSIONED')`;
 
 /** Sortable field -> the expression it orders by. Keyed by a closed union, so
- *  nothing a client sends can reach the `ORDER BY` as text. */
+ *  nothing a client sends can reach the `ORDER BY` as text.
+ *
+ *  `code` and `createdAt` are answered by an index walk (see 004). `station`
+ *  cannot be: `st.name` lives in the joined table, and ordering happens after
+ *  joining, so no index on `locker` can spare the sort. It stays because it is
+ *  high-cardinality and a real way to read a multi-station bank; the cost is
+ *  bounded by the station filter in practice. */
 const SORT_EXPRESSIONS: Record<LockerSortField, string> = {
   code: 'l.code',
-  size: sizeOrderExpr('l.size_code'),
-  status: 'l.status',
-  // 0 before 1 ascending, i.e. FREE before OCCUPIED.
-  availability: 'la.package_id IS NOT NULL',
   station: 'st.name',
   createdAt: 'l.created_at',
 };

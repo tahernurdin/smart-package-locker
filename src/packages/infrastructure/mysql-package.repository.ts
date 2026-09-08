@@ -6,7 +6,6 @@ import {
   isDuplicateEntryError,
 } from '../../shared/database/mysql-errors.js';
 import { MYSQL_POOL } from '../../shared/database/mysql.pool.js';
-import { sizeOrderExpr } from '../../shared/database/size-order.js';
 import { withTransaction } from '../../shared/database/transaction.js';
 import {
   LockerJustTakenError,
@@ -79,17 +78,21 @@ export class MysqlPackageRepository implements PackageRepository {
   ): Promise<ReservedLocker | null> {
     return withTransaction(this.pool, async (conn) => {
       const [lockerRows] = await conn.query<RowDataPacket[]>(
+        // `size_rank` is a generated column holding `LockerSize.rank` (005), so
+        // "smallest that fits" is a plain range and a plain order — and
+        // `ix_locker_allocation` serves the filter, the range and the order in
+        // one walk, stopping at the first match rather than sorting the bank.
         `SELECT l.id, l.code
          FROM locker l
          LEFT JOIN locker_assignment la ON la.active_locker_id = l.id
          WHERE l.station_id = :stationId
            AND l.status = 'IN_SERVICE'
            AND la.id IS NULL
-           AND ${sizeOrderExpr('l.size_code')} >= ${sizeOrderExpr(':sizeCode')}
-         ORDER BY ${sizeOrderExpr('l.size_code')} ASC, l.code ASC
+           AND l.size_rank >= :sizeRank
+         ORDER BY l.size_rank ASC, l.code ASC
          LIMIT 1
          FOR UPDATE OF l SKIP LOCKED`,
-        { stationId: params.stationId, sizeCode: params.requiredSize.code },
+        { stationId: params.stationId, sizeRank: params.requiredSize.rank },
       );
       if (lockerRows.length === 0) return null;
 

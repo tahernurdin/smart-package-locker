@@ -533,7 +533,7 @@ describe('Locker & station management (e2e)', () => {
     });
 
     describe('listing', () => {
-      /** Codes picked so size order and code order disagree. */
+      /** Seeded out of code order, so the default sort proves it is sorting. */
       async function seedBank(op: string): Promise<void> {
         await createLocker(op, 'C-01', 'LARGE').expect(201);
         await createLocker(op, 'A-02', 'MEDIUM').expect(201);
@@ -548,7 +548,7 @@ describe('Locker & station management (e2e)', () => {
       const codes = (body: { items: { code: string }[] }) =>
         body.items.map((l) => l.code);
 
-      it('answers one default-sized page, smallest size first', async () => {
+      it('answers one default-sized page, in code order', async () => {
         const op = await token('OPERATOR');
         await seedBank(op);
 
@@ -557,10 +557,10 @@ describe('Locker & station management (e2e)', () => {
         expect(res.body).toMatchObject({ total: 5, limit: 50, offset: 0 });
         expect(codes(res.body)).toEqual([
           'A-01',
-          'B-03',
           'A-02',
-          'D-04',
+          'B-03',
           'C-01',
+          'D-04',
         ]);
       });
 
@@ -656,6 +656,12 @@ describe('Locker & station management (e2e)', () => {
         await list(op, '?sortBy=stationName').expect(400);
         await list(op, '?sortDir=sideways').expect(400);
         await list(op, '?size=HUGE').expect(400);
+
+        // Filterable, deliberately not sortable — too few values for an order
+        // to mean anything. The filters below still answer the same question.
+        await list(op, '?sortBy=size').expect(400);
+        await list(op, '?sortBy=status').expect(400);
+        await list(op, '?sortBy=availability').expect(400);
       });
     });
   });

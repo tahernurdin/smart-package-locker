@@ -9,13 +9,17 @@ import { InvalidPackageSortError } from './errors.js';
  * The fields a package listing may be ordered by. A closed set: the repository
  * maps each name to a SQL expression, so nothing off the wire reaches an
  * `ORDER BY`. Add a field here and give it an expression in the adapter.
+ *
+ * As with lockers, only high-cardinality fields are offered. `status` (3
+ * values) and `size` (3) are filters, not sorts — see the note on
+ * `LOCKER_SORT_FIELDS`. `status` had a second problem: `ORDER BY p.status`
+ * sorts alphabetically, which puts RETRIEVED ahead of STORED and so ran the
+ * lifecycle backwards.
  */
 export const PACKAGE_SORT_FIELDS = [
   'registeredAt',
   'storedAt',
   'retrievedAt',
-  'status',
-  'size',
   'station',
 ] as const;
 export type PackageSortField = (typeof PACKAGE_SORT_FIELDS)[number];

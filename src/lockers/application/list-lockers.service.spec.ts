@@ -112,7 +112,7 @@ describe('ListLockersService', () => {
         availability: undefined,
         includeDecommissioned: undefined,
       },
-      sort: { field: 'size', direction: 'asc' },
+      sort: { field: 'code', direction: 'asc' },
       page: { limit: DEFAULT_PAGE_LIMIT, offset: 0 },
     });
   });

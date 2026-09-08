@@ -2,9 +2,9 @@ import { InvalidLockerSortError } from './errors.js';
 import { DEFAULT_LOCKER_SORT, lockerSortOf } from './locker-sort.js';
 
 describe('lockerSortOf', () => {
-  it('defaults to smallest-size-first', () => {
+  it('defaults to code order', () => {
     expect(lockerSortOf()).toEqual(DEFAULT_LOCKER_SORT);
-    expect(DEFAULT_LOCKER_SORT).toEqual({ field: 'size', direction: 'asc' });
+    expect(DEFAULT_LOCKER_SORT).toEqual({ field: 'code', direction: 'asc' });
   });
 
   it('takes a known field and direction', () => {
@@ -20,7 +20,7 @@ describe('lockerSortOf', () => {
       direction: 'asc',
     });
     expect(lockerSortOf(undefined, 'desc')).toEqual({
-      field: 'size',
+      field: 'code',
       direction: 'desc',
     });
   });
@@ -31,6 +31,14 @@ describe('lockerSortOf', () => {
       InvalidLockerSortError,
     );
     expect(() => lockerSortOf('stationName')).toThrow(InvalidLockerSortError);
+  });
+
+  // Three values make a filter, not a sort: paging an order with a handful of
+  // values hands back page after page of one value. All three stay filterable.
+  it('does not offer the low-cardinality fields as sorts', () => {
+    for (const field of ['size', 'status', 'availability']) {
+      expect(() => lockerSortOf(field)).toThrow(InvalidLockerSortError);
+    }
   });
 
   it('rejects an unknown direction', () => {

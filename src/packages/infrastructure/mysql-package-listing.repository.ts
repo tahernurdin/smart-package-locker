@@ -2,7 +2,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import type { Pool, RowDataPacket } from 'mysql2/promise';
 import { LockerSize } from '../../lockers/domain/locker-size.js';
 import { MYSQL_POOL } from '../../shared/database/mysql.pool.js';
-import { sizeOrderExpr } from '../../shared/database/size-order.js';
 import type {
   ListPackagesQuery,
   PackageListingPage,
@@ -40,13 +39,18 @@ const LISTING_WHERE = `
     AND (:trackingRef IS NULL OR p.tracking_ref = :trackingRef)`;
 
 /** Sortable field -> the expression it orders by. Keyed by a closed union, so
- *  nothing a client sends can reach the `ORDER BY` as text. */
+ *  nothing a client sends can reach the `ORDER BY` as text.
+ *
+ *  Only `registeredAt` sorts on `package` itself, so only it can be answered by
+ *  an index walk. The rest reach through a join — `stored_at`/`retrieved_at`
+ *  from the assignment, `st.name` from the station — and ordering happens after
+ *  joining, so those sort the matched set by construction. They are kept
+ *  because they are high-cardinality and genuinely useful; the filters narrow
+ *  what gets sorted. */
 const SORT_EXPRESSIONS: Record<PackageSortField, string> = {
   registeredAt: 'p.created_at',
   storedAt: 'la.stored_at',
   retrievedAt: 'la.retrieved_at',
-  status: 'p.status',
-  size: sizeOrderExpr('p.size_code'),
   station: 'st.name',
 };
 
