@@ -72,7 +72,7 @@ function build(opts: {
   now?: Date;
   blockFor?: number;
 }) {
-  const saveRetrieval = vi.fn(async () => undefined);
+  const saveRetrieval = vi.fn(async (_pkg: Package) => undefined);
   const lockers = {
     findById: async () => opts.locker ?? null,
   } as unknown as LockerRepository;
@@ -122,7 +122,9 @@ describe('RetrievePackageService', () => {
       opened: true,
     });
     expect(saveRetrieval).toHaveBeenCalledTimes(1);
-    expect(saveRetrieval.mock.calls[0][0].assignment.storageFeeMinor).toBe(0);
+    expect(saveRetrieval.mock.calls[0]?.[0].assignment?.storageFeeMinor).toBe(
+      0,
+    );
   });
 
   it('passes the fee from the policy straight through', async () => {
@@ -138,7 +140,9 @@ describe('RetrievePackageService', () => {
     });
 
     expect(result.storageFee.amountMinor).toBe(1500);
-    expect(saveRetrieval.mock.calls[0][0].assignment.storageFeeMinor).toBe(1500);
+    expect(saveRetrieval.mock.calls[0]?.[0].assignment?.storageFeeMinor).toBe(
+      1500,
+    );
   });
 
   it('fails the same way for an unknown locker, no active package, a wrong code, or another customer', async () => {
