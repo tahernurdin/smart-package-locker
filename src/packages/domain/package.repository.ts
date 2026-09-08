@@ -43,6 +43,13 @@ export interface PackageRepository {
   ): Promise<ReservedLocker | null>;
 
   /**
+   * Write the new pickup-code hash onto the open assignment. Conditional on the
+   * assignment still being open, so a code cannot be re-issued into a parcel
+   * that was collected a moment ago — that throws `PackageAlreadyRetrievedError`.
+   */
+  savePickupCode(pkg: Package): Promise<void>;
+
+  /**
    * Close the assignment (`retrieved_at`, `storage_fee_minor`) and flip the
    * package to `RETRIEVED`, in one transaction. A concurrent retrieval that got
    * there first throws `PackageAlreadyRetrievedError`.

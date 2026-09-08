@@ -91,11 +91,6 @@ export class Package {
     return this.assignment?.retrievedAt ?? null;
   }
 
-  /** A parcel is only ever released to the customer it was registered for. */
-  belongsTo(customerId: string): boolean {
-    return this.customerId === customerId;
-  }
-
   /** REGISTERED → STORED. Opens a fresh assignment for `lockerId`. */
   storeInLocker(params: {
     assignmentId: string;
@@ -121,6 +116,28 @@ export class Package {
       createdAt: this.createdAt,
       updatedAt: params.now,
       assignment,
+    });
+  }
+
+  /**
+   * Replaces the pickup code on the open assignment. Not a status change: the
+   * parcel stays STORED in the same locker, and only the secret that opens it
+   * changes — which is what makes the old code worthless the moment this
+   * returns.
+   */
+  reissuePickupCode(params: { pickupCodeHash: string; now: Date }): Package {
+    if (this.status !== 'STORED' || !this.assignment?.isActive) {
+      throw new PackageAlreadyRetrievedError();
+    }
+    return new Package({
+      id: this.id,
+      customerId: this.customerId,
+      size: this.size,
+      trackingRef: this.trackingRef,
+      status: this.status,
+      createdAt: this.createdAt,
+      updatedAt: params.now,
+      assignment: this.assignment.withPickupCodeHash(params.pickupCodeHash),
     });
   }
 

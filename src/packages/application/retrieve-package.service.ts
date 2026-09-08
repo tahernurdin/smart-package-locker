@@ -38,10 +38,15 @@ export interface RetrievedPackage {
 }
 
 /**
- * Collection at the locker door. `customerId` is the authenticated subject the
- * controller passes in — never a field on the request — so the pickup code
- * alone opens nothing: it has to be presented by the customer the parcel was
- * registered for.
+ * Collection at the locker door. The caller is the station — the keypad on the
+ * cabinet — and the person in front of it has no session: `{ lockerId,
+ * pickupCode }` is the whole request, exactly as the brief describes it.
+ *
+ * So the pickup code is not a second factor here, it is *the* credential: the
+ * only thing separating a parcel from whoever is standing at the locker. That
+ * is what makes the rest of the design non-negotiable — the code is generated
+ * per assignment, stored only as a hash, compared in constant time, and capped
+ * at five wrong guesses per door.
  */
 @Injectable()
 export class RetrievePackageService {
@@ -56,13 +61,10 @@ export class RetrievePackageService {
     private readonly attempts: PickupAttemptLimiter,
   ) {}
 
-  async retrieve(
-    customerId: string,
-    input: RetrievePackageDto,
-  ): Promise<RetrievedPackage> {
-    // Before anything is looked up, so a blocked caller learns nothing from
+  async retrieve(input: RetrievePackageDto): Promise<RetrievedPackage> {
+    // Before anything is looked up, so a blocked door gives nothing away in
     // how long the answer took or which error came back.
-    const block = await this.attempts.check(customerId, input.lockerId);
+    const block = await this.attempts.check(input.lockerId);
     if (block) throw new TooManyRetrievalAttemptsError(block.retryAfterSeconds);
 
     const pickupCode = PickupCode.of(input.pickupCode).value;
@@ -73,18 +75,12 @@ export class RetrievePackageService {
     const pkg = await this.packages.findActiveByLocker(locker.id);
     if (!pkg) throw new PackageNotFoundForRetrievalError();
 
-    // Someone else's parcel fails exactly like a wrong code — the same 404, so
-    // a leaked code tells its finder nothing about what that locker holds.
-    if (!pkg.belongsTo(customerId)) {
-      throw new PackageNotFoundForRetrievalError();
-    }
-
-    // The only counted failure: a real parcel of the caller's own, opened with
+    // The only counted failure: a real parcel behind a real door, opened with
     // the wrong code. That is the guess a limiter can meaningfully cap, and
-    // narrowing it here keeps an honest customer who mistypes a locker id, or
-    // returns to one already emptied, from spending their budget on it.
+    // narrowing it here keeps a mistyped locker id, or a return to a door
+    // already emptied, from freezing a locker someone's parcel is sitting in.
     if (!this.hasher.verify(pickupCode, pkg.pickupCodeHash)) {
-      await this.attempts.recordFailure(customerId, locker.id);
+      await this.attempts.recordFailure(locker.id);
       throw new PackageNotFoundForRetrievalError();
     }
 
@@ -100,7 +96,7 @@ export class RetrievePackageService {
     // Only after the parcel is actually out. Losing the race to a concurrent
     // request throws from `saveRetrieval` and is not a failed attempt either —
     // nothing was guessed — so it neither counts nor clears.
-    await this.attempts.clear(customerId, locker.id);
+    await this.attempts.clear(locker.id);
 
     // TODO(hardware): release the latch here — the one point where this
     // service would leave software and touch the locker bank, whether that is

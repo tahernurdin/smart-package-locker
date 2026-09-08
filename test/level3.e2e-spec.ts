@@ -21,7 +21,7 @@ const PLUS_14_DAYS = '2026-06-15T00:00:00.000Z';
 describe('Level 3 — storage fees (e2e)', () => {
   let app: INestApplication<App>;
   let pool: Pool;
-  let tokens: { operator: string; agent: string; customer: string };
+  let tokens: { operator: string; agent: string; station: string };
   const clock = {
     current: new Date(STORED_AT),
     now() {
@@ -48,9 +48,9 @@ describe('Level 3 — storage fees (e2e)', () => {
     tokens = {
       operator: await token('OPERATOR'),
       agent: await token('AGENT'),
-      // A customer's token carries their customer id as its subject — the
-      // parcels below are registered against that same id.
-      customer: await token('CUSTOMER', CUSTOMER_ID),
+      // Retrieval is called by the locker station: the customer at the keypad
+      // is identified by their pickup code, not by a session.
+      station: await token('STATION'),
     };
   });
 
@@ -104,7 +104,7 @@ describe('Level 3 — storage fees (e2e)', () => {
   const retrieve = (lockerId: string, pickupCode: string) =>
     http()
       .post('/packages/retrieve')
-      .set('authorization', `Bearer ${tokens.customer}`)
+      .set('authorization', `Bearer ${tokens.station}`)
       .send({ lockerId, pickupCode });
 
   async function snapshottedFee(packageId: string): Promise<number> {

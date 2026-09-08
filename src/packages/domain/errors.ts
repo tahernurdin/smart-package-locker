@@ -90,3 +90,44 @@ export class PackageAlreadyRetrievedError extends ConflictDomainError {
     );
   }
 }
+
+/**
+ * A pickup code was asked for on a parcel that is not the caller's, does not
+ * exist, or was never stored. One answer for all three: a customer may only
+ * learn about their own parcels, and guessing at package ids must not confirm
+ * which ones are real.
+ */
+export class PickupCodeNotReissuableError extends NotFoundDomainError {
+  constructor() {
+    super(
+      'pickup_code_reissue_failed',
+      'No stored parcel of yours matches that id',
+    );
+  }
+}
+
+/** The parcel is the caller's, but it is not sitting in a locker right now. */
+export class PackageNotStoredError extends ConflictDomainError {
+  constructor(status: string) {
+    super(
+      'package_not_stored',
+      `This parcel is ${status}; only a stored parcel has a pickup code`,
+      { status },
+    );
+  }
+}
+
+/**
+ * This parcel has been given as many codes as its window allows. Each re-issue
+ * notifies the customer, so the cap is on cost rather than on guessing: the
+ * count is never cleared, and the only way back is to wait it out.
+ */
+export class TooManyPickupCodeReissuesError extends RateLimitedDomainError {
+  constructor(retryAfterSeconds: number) {
+    super(
+      'too_many_pickup_code_reissues',
+      'This parcel has been given too many pickup codes. Try again later',
+      retryAfterSeconds,
+    );
+  }
+}

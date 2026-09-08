@@ -17,15 +17,14 @@ function configWith(maxAttempts: number): AppConfiguration {
 }
 
 /**
- * The limiter against a real Redis. Every test uses a fresh customer id, so the
+ * The limiter against a real Redis. Every test uses a fresh locker id, so the
  * keys cannot collide and nothing has to be flushed — this must stay safe to
  * run against a Redis someone else is also using.
  */
 describe('RedisPickupAttemptLimiter (e2e)', () => {
   let redis: RedisClient;
   let limiter: RedisPickupAttemptLimiter;
-  let customer: string;
-  const LOCKER = 'locker-1';
+  let locker: string;
 
   beforeAll(async () => {
     redis = createRedisClient(loadConfiguration().redis.url);
@@ -35,22 +34,22 @@ describe('RedisPickupAttemptLimiter (e2e)', () => {
   });
 
   beforeEach(() => {
-    customer = randomUUID();
+    locker = randomUUID();
   });
 
   afterAll(async () => {
     await redis?.close();
   });
 
-  const key = (c: string, l: string) => `retrieval:attempts:${c}:${l}`;
+  const key = (l: string) => `retrieval:attempts:${l}`;
 
   it('allows the configured attempts, then blocks', async () => {
     for (let i = 0; i < 5; i++) {
-      expect(await limiter.check(customer, LOCKER)).toBeNull();
-      await limiter.recordFailure(customer, LOCKER);
+      expect(await limiter.check(locker)).toBeNull();
+      await limiter.recordFailure(locker);
     }
 
-    const block = await limiter.check(customer, LOCKER);
+    const block = await limiter.check(locker);
     expect(block).not.toBeNull();
     expect(block?.retryAfterSeconds).toBeGreaterThan(0);
     expect(block?.retryAfterSeconds).toBeLessThanOrEqual(LOCKOUT_SECONDS);
@@ -60,34 +59,32 @@ describe('RedisPickupAttemptLimiter (e2e)', () => {
     // The bug this guards: setting the TTL only on the first failure anchors
     // the window to the first attempt, and a burst of five then unblocks
     // seconds later instead of a full lockout after the fifth.
-    await limiter.recordFailure(customer, LOCKER);
-    await redis.pExpire(key(customer, LOCKER), 1_000);
-    expect(await redis.pTTL(key(customer, LOCKER))).toBeLessThanOrEqual(1_000);
+    await limiter.recordFailure(locker);
+    await redis.pExpire(key(locker), 1_000);
+    expect(await redis.pTTL(key(locker))).toBeLessThanOrEqual(1_000);
 
-    await limiter.recordFailure(customer, LOCKER);
+    await limiter.recordFailure(locker);
 
-    expect(await redis.pTTL(key(customer, LOCKER))).toBeGreaterThan(
+    expect(await redis.pTTL(key(locker))).toBeGreaterThan(
       LOCKOUT_SECONDS * 1_000 - 5_000,
     );
   });
 
-  it('counts each customer and each locker separately', async () => {
+  it('counts each locker separately', async () => {
     const other = randomUUID();
-    for (let i = 0; i < 5; i++) await limiter.recordFailure(customer, LOCKER);
+    for (let i = 0; i < 5; i++) await limiter.recordFailure(locker);
 
-    expect(await limiter.check(customer, LOCKER)).not.toBeNull();
-    // A different door, and a different caller at the same door, are untouched
-    // — one customer's failures can never lock anyone else out.
-    expect(await limiter.check(customer, 'locker-2')).toBeNull();
-    expect(await limiter.check(other, LOCKER)).toBeNull();
+    expect(await limiter.check(locker)).not.toBeNull();
+    // Guessing at one door never freezes the one beside it.
+    expect(await limiter.check(other)).toBeNull();
   });
 
   it('forgets the attempts when cleared', async () => {
-    for (let i = 0; i < 5; i++) await limiter.recordFailure(customer, LOCKER);
-    expect(await limiter.check(customer, LOCKER)).not.toBeNull();
+    for (let i = 0; i < 5; i++) await limiter.recordFailure(locker);
+    expect(await limiter.check(locker)).not.toBeNull();
 
-    await limiter.clear(customer, LOCKER);
-    expect(await limiter.check(customer, LOCKER)).toBeNull();
+    await limiter.clear(locker);
+    expect(await limiter.check(locker)).toBeNull();
   });
 
   it('fails open when Redis is unreachable', async () => {
@@ -100,10 +97,8 @@ describe('RedisPickupAttemptLimiter (e2e)', () => {
 
     // No throw, and no block: a customer standing at a locker is not held there
     // by a counter store being down.
-    await expect(
-      offline.recordFailure(customer, LOCKER),
-    ).resolves.toBeUndefined();
-    expect(await offline.check(customer, LOCKER)).toBeNull();
-    await expect(offline.clear(customer, LOCKER)).resolves.toBeUndefined();
+    await expect(offline.recordFailure(locker)).resolves.toBeUndefined();
+    expect(await offline.check(locker)).toBeNull();
+    await expect(offline.clear(locker)).resolves.toBeUndefined();
   });
 });

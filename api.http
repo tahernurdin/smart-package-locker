@@ -5,8 +5,8 @@
 # create resources are named (# @name ...) so later blocks can reuse
 # their responses.
 #
-# Status: health, auth, stations, lockers, storage rates, register, store, and
-# retrieve are all implemented (Levels 1–3). The storage fee in the retrieve
+# Status: health, auth, stations, lockers, storage rates, register, store,
+# re-issue and retrieve are all implemented (Levels 1–3). The storage fee in the retrieve
 # response is real now — it's 0 only because a static request file picks up the
 # package the same day; the tiered per-day rates are exercised in
 # test/level3.e2e-spec.ts (which fakes the clock). The rates themselves are
@@ -14,7 +14,8 @@
 # first version so a fresh deployment can price a stay.
 #
 # Suggested order: mint tokens → create a station → create lockers → list →
-# register → store → retrieve.
+# register → store → retrieve (with a re-issue in between if you want to see a
+# lost code replaced).
 
 @baseUrl = http://localhost:3000
 
@@ -51,27 +52,29 @@ Content-Type: application/json
 { "role": "AGENT" }
 
 ### Mint a CUSTOMER token
-# `sub` is the customer id the token speaks for — retrieve only opens a locker
-# holding a parcel registered against it, so it matches the customerId used in
-# the register block below.
+# `sub` is the customer id the token speaks for — /packages/mine lists the
+# parcels registered against it, so it matches the customerId used in the
+# register block below. It opens no lockers: that happens at the station.
 # @name customerToken
 POST {{baseUrl}}/auth/dev-token
 Content-Type: application/json
 
 { "role": "CUSTOMER", "sub": "11111111-1111-4111-8111-111111111111" }
 
-### Mint a CUSTOMER token for a different customer (for the negative below)
-# @name otherCustomerToken
+### Mint a STATION token
+# The locker bank itself — the caller of /packages/retrieve. The person at the
+# keypad has no token; their pickup code is what identifies them.
+# @name stationToken
 POST {{baseUrl}}/auth/dev-token
 Content-Type: application/json
 
-{ "role": "CUSTOMER", "sub": "22222222-2222-4222-8222-222222222222" }
+{ "role": "STATION" }
 
 ### Tokens captured from the responses above
 @operator = {{operatorToken.response.body.token}}
 @agent = {{agentToken.response.body.token}}
 @customer = {{customerToken.response.body.token}}
-@otherCustomer = {{otherCustomerToken.response.body.token}}
+@station = {{stationToken.response.body.token}}
 
 ###############################################################################
 # Stations (role: OPERATOR)
@@ -364,22 +367,47 @@ Content-Type: application/json
 { "size": "SMALL", "customerId": "11111111-1111-4111-8111-111111111111" }
 
 ###############################################################################
-# Packages — retrieve (role: CUSTOMER; authorized by locker id + pickup code,
-# and only for the customer the parcel was registered against — that comes from
-# the token's subject, never the body)
+# Packages — re-issue a pickup code (role: CUSTOMER)
 #
-# Five wrong codes at one locker and that customer is turned away from it for
-# 15 minutes (429, with Retry-After). Only wrong codes count, so the negative
-# blocks below do not spend the budget. Sending the wrong-code block six times
-# is how you see it; the counter is in Redis under
-# retrieval:attempts:<customerId>:<lockerId> and clears on a successful pickup.
+# The lost-SMS path. The caller's own token decides whose parcel this is, so
+# there is no body: just the package id. The answer carries a new code, the old
+# one stops working immediately, and any failed-attempt block on that locker is
+# lifted with it — those guesses were against a code that no longer exists.
+#
+# Capped at PICKUP_CODE_REISSUE_MAX per parcel per window (default 3/hour),
+# counted in Redis under pickup-code:reissues:<packageId>. That budget is never
+# cleared — it caps what re-issues cost to send, not guessing, since the caller
+# is handed the code outright. Send this block four times to see the 429.
 ###############################################################################
 
-### Negative: another customer with the right code → 404 (retrieval_failed —
-### the same answer a wrong code gets). Send this before the block below: once
-### the parcel is collected every retrieval 404s and the point is lost.
+### Re-issue the code for the parcel stored above
+# @name reissuePickupCode
+POST {{baseUrl}}/packages/{{packageId}}/pickup-code
+Authorization: Bearer {{customer}}
+
+### The new code, captured for the retrieve block below
+@newPickupCode = {{reissuePickupCode.response.body.pickupCode}}
+
+### Negative: a station token → 403. The cabinet knows a door, not a person.
+POST {{baseUrl}}/packages/{{packageId}}/pickup-code
+Authorization: Bearer {{station}}
+
+###############################################################################
+# Packages — retrieve (role: STATION; the keypad on the cabinet, called with a
+# locker id and a pickup code — the code is the whole proof that the parcel is
+# the caller's, so nothing here reads a customer identity)
+#
+# Five wrong codes at one locker and that door is closed to everyone for 15
+# minutes (429, with Retry-After). Only wrong codes count, so a mistyped locker
+# id below does not spend the budget. Sending the wrong-code block six times is
+# how you see it; the counter is in Redis under
+# retrieval:attempts:<lockerId> and clears on a successful pickup.
+###############################################################################
+
+### Negative: a customer token → 403. Doors are opened at the station; the
+### app's job ends at telling its owner which locker to walk to.
 POST {{baseUrl}}/packages/retrieve
-Authorization: Bearer {{otherCustomer}}
+Authorization: Bearer {{customer}}
 Content-Type: application/json
 
 {
@@ -389,7 +417,7 @@ Content-Type: application/json
 
 ### Retrieve the package stored above
 POST {{baseUrl}}/packages/retrieve
-Authorization: Bearer {{customer}}
+Authorization: Bearer {{station}}
 Content-Type: application/json
 
 {
@@ -397,9 +425,20 @@ Content-Type: application/json
   "pickupCode": "{{pickupCode}}"
 }
 
+### Retrieve with the re-issued code (send the re-issue block above first —
+### it voids the code captured from the store response)
+POST {{baseUrl}}/packages/retrieve
+Authorization: Bearer {{station}}
+Content-Type: application/json
+
+{
+  "lockerId": "{{lockerId}}",
+  "pickupCode": "{{newPickupCode}}"
+}
+
 ### Retrieve with explicit values (fill these in by hand)
 POST {{baseUrl}}/packages/retrieve
-Authorization: Bearer {{customer}}
+Authorization: Bearer {{station}}
 Content-Type: application/json
 
 {

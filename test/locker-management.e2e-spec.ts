@@ -490,12 +490,12 @@ describe('Locker & station management (e2e)', () => {
         .expect(409);
       expect(refused.body.code).toBe('locker_occupied');
 
-      // Once the customer collects it, the locker can be retired. The token's
-      // subject is the customer the parcel was registered for.
-      const customer = await token('CUSTOMER', CUSTOMER_ID);
+      // Once the parcel is collected at the station keypad, the locker can be
+      // retired.
+      const station = await token('STATION');
       await http()
         .post('/packages/retrieve')
-        .set('authorization', `Bearer ${customer}`)
+        .set('authorization', `Bearer ${station}`)
         .send({
           lockerId: stored.body.lockerId,
           pickupCode: stored.body.pickupCode,

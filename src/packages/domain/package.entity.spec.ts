@@ -37,14 +37,6 @@ describe('Package.register', () => {
   });
 });
 
-describe('Package.belongsTo', () => {
-  it('recognises only the customer it was registered for', () => {
-    const pkg = stored();
-    expect(pkg.belongsTo('c-1')).toBe(true);
-    expect(pkg.belongsTo('c-2')).toBe(false);
-  });
-});
-
 describe('Package.storeInLocker', () => {
   it('REGISTERED -> STORED and opens an active assignment', () => {
     const pkg = stored();
@@ -76,6 +68,32 @@ describe('Package.storeInLocker', () => {
     });
     expect(pkg.status).toBe('REGISTERED');
     expect(pkg.assignment).toBeNull();
+  });
+});
+
+describe('Package.reissuePickupCode', () => {
+  it('swaps the code without disturbing the stay', () => {
+    const before = stored();
+    const after = before.reissuePickupCode({
+      pickupCodeHash: 'new-hash',
+      now: new Date('2026-06-03T00:00:00.000Z'),
+    });
+
+    expect(after.pickupCodeHash).toBe('new-hash');
+    expect(after.status).toBe('STORED');
+    expect(after.lockerId).toBe(before.lockerId);
+    // The fee is computed from `storedAt`, so a new code must not move it.
+    expect(after.storedAt).toEqual(before.storedAt);
+    expect(before.pickupCodeHash).not.toBe('new-hash');
+  });
+
+  it('rejects a parcel that is not in a locker', () => {
+    expect(() =>
+      registered().reissuePickupCode({
+        pickupCodeHash: 'new-hash',
+        now: new Date('2026-06-03T00:00:00.000Z'),
+      }),
+    ).toThrow(PackageAlreadyRetrievedError);
   });
 });
 

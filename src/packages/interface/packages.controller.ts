@@ -21,6 +21,10 @@ import {
   type RegisteredPackage,
 } from '../application/register-package.service.js';
 import {
+  ReissuePickupCodeService,
+  type ReissuedPickupCode,
+} from '../application/reissue-pickup-code.service.js';
+import {
   RetrievePackageService,
   type RetrievedPackage,
 } from '../application/retrieve-package.service.js';
@@ -38,6 +42,7 @@ import { StorePackageDto } from './dto/store-package.dto.js';
 export class PackagesController {
   constructor(
     private readonly registerPackage: RegisterPackageService,
+    private readonly reissuePickupCode: ReissuePickupCodeService,
     private readonly storePackage: StorePackageService,
     private readonly retrievePackage: RetrievePackageService,
     private readonly listMyPackages: ListMyPackagesService,
@@ -75,6 +80,23 @@ export class PackagesController {
     return this.registerPackage.register(dto);
   }
 
+  /**
+   * A new pickup code for the caller's own parcel — the answer to a lost SMS,
+   * and the only endpoint that hands out a code after the drop. The old one
+   * stops working the moment this returns, and the locker's failed-attempt
+   * block is lifted with it, since those guesses were against a code that no
+   * longer exists.
+   */
+  @Post(':id/pickup-code')
+  @Auth(Role.Customer)
+  @HttpCode(200)
+  reissue(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: AuthUser,
+  ): Promise<ReissuedPickupCode> {
+    return this.reissuePickupCode.reissue(user.sub, id);
+  }
+
   @Post(':id/store')
   @Auth(Role.Agent)
   @HttpCode(200)
@@ -91,16 +113,19 @@ export class PackagesController {
   }
 
   /**
-   * Whose parcel it is comes from the token, so a pickup code is only good in
-   * the hands of the customer it was issued to.
+   * The keypad on the cabinet, not the phone in the customer's pocket. The
+   * person collecting a parcel is not logged in — they present a locker id and
+   * a pickup code, and the code is what proves the parcel is theirs.
+   *
+   * The token belongs to the station, so this is not "an unauthenticated
+   * endpoint": the hardware is known, and a code cannot be ground down from
+   * anywhere on the internet. But it says nothing about *who* is at the door,
+   * which is why nothing here reads `@CurrentUser()`.
    */
   @Post('retrieve')
-  @Auth(Role.Customer)
+  @Auth(Role.Station)
   @HttpCode(200)
-  retrieve(
-    @CurrentUser() user: AuthUser,
-    @Body() dto: RetrievePackageDto,
-  ): Promise<RetrievedPackage> {
-    return this.retrievePackage.retrieve(user.sub, dto);
+  retrieve(@Body() dto: RetrievePackageDto): Promise<RetrievedPackage> {
+    return this.retrievePackage.retrieve(dto);
   }
 }

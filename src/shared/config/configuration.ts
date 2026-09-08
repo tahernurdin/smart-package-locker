@@ -25,6 +25,16 @@ export interface RetrievalLimitConfig {
   lockoutSeconds: number;
 }
 
+/**
+ * How many pickup codes one parcel may be given, and over what window. Each
+ * re-issue notifies the customer, so this is a cap on cost — and it is never
+ * refunded, so three in an hour means waiting out the hour.
+ */
+export interface PickupCodeReissueConfig {
+  maxPerWindow: number;
+  windowSeconds: number;
+}
+
 export interface AppConfiguration {
   nodeEnv: AppEnv;
   isProduction: boolean;
@@ -36,6 +46,7 @@ export interface AppConfiguration {
   currency: string;
   pickupCodePepper: string;
   retrievalLimit: RetrievalLimitConfig;
+  pickupCodeReissue: PickupCodeReissueConfig;
 }
 
 export class ConfigError extends Error {}
@@ -114,6 +125,10 @@ export function loadConfiguration(
     retrievalLimit: {
       maxAttempts: Number(env.RETRIEVAL_MAX_ATTEMPTS ?? 5),
       lockoutSeconds: Number(env.RETRIEVAL_LOCKOUT_SECONDS ?? 900),
+    },
+    pickupCodeReissue: {
+      maxPerWindow: Number(env.PICKUP_CODE_REISSUE_MAX ?? 3),
+      windowSeconds: Number(env.PICKUP_CODE_REISSUE_WINDOW_SECONDS ?? 3600),
     },
   };
 }

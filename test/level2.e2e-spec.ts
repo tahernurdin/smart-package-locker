@@ -59,11 +59,12 @@ describe('Level 2 — retrieval (e2e)', () => {
 
   // A customer id as it would arrive from the upstream customer service.
   const CUSTOMER_ID = '11111111-1111-4111-8111-111111111111';
-  const OTHER_CUSTOMER_ID = '22222222-2222-4222-8222-222222222222';
 
-  /** A customer's token carries their customer id as its subject. */
-  const customerToken = (customerId = CUSTOMER_ID) =>
-    token('CUSTOMER', customerId);
+  /**
+   * Retrieval is called by the locker station, not by the customer: the person
+   * at the keypad has no session, and the pickup code is what identifies them.
+   */
+  const stationToken = () => token('STATION');
 
   async function registerAndStore(agent: string, size: string, code = 'A-01') {
     const registered = await http()
@@ -98,11 +99,11 @@ describe('Level 2 — retrieval (e2e)', () => {
   it('retrieves a package, returns a fee-0 confirmation, and frees the locker', async () => {
     const { op, agent, lockerId, pickupCode, packageId } =
       await seedStoredPackage();
-    const customer = await customerToken();
+    const station = await stationToken();
 
     const res = await http()
       .post('/packages/retrieve')
-      .set('authorization', `Bearer ${customer}`)
+      .set('authorization', `Bearer ${station}`)
       .send({ lockerId, pickupCode })
       .expect(200);
 
@@ -129,11 +130,11 @@ describe('Level 2 — retrieval (e2e)', () => {
 
   it('rejects every invalid retrieval the same way', async () => {
     const { lockerId, pickupCode } = await seedStoredPackage();
-    const customer = await customerToken();
+    const station = await stationToken();
     const retrieve = (body: Record<string, string>) =>
       http()
         .post('/packages/retrieve')
-        .set('authorization', `Bearer ${customer}`)
+        .set('authorization', `Bearer ${station}`)
         .send(body);
 
     await retrieve({ lockerId, pickupCode }).expect(200);
@@ -149,34 +150,13 @@ describe('Level 2 — retrieval (e2e)', () => {
     await retrieve({ lockerId: 'not-a-uuid', pickupCode: '12' }).expect(400);
   });
 
-  it('refuses another customer holding the right pickup code', async () => {
+  it('blocks a door after five wrong codes at it', async () => {
     const { lockerId, pickupCode } = await seedStoredPackage();
-    const stranger = await customerToken(OTHER_CUSTOMER_ID);
-
-    // Indistinguishable from a wrong code, so a leaked code tells its finder
-    // nothing about what that locker holds.
-    const refused = await http()
-      .post('/packages/retrieve')
-      .set('authorization', `Bearer ${stranger}`)
-      .send({ lockerId, pickupCode })
-      .expect(404);
-    expect(refused.body.code).toBe('retrieval_failed');
-
-    // and the parcel is untouched: its own customer still collects it
-    await http()
-      .post('/packages/retrieve')
-      .set('authorization', `Bearer ${await customerToken()}`)
-      .send({ lockerId, pickupCode })
-      .expect(200);
-  });
-
-  it('blocks a customer after five wrong codes at the same locker', async () => {
-    const { lockerId, pickupCode } = await seedStoredPackage();
-    const customer = await customerToken();
+    const station = await stationToken();
     const attempt = (code: string) =>
       http()
         .post('/packages/retrieve')
-        .set('authorization', `Bearer ${customer}`)
+        .set('authorization', `Bearer ${station}`)
         .send({ lockerId, pickupCode: code });
 
     // Six candidates so that dropping the one that happens to be the real code
@@ -196,31 +176,26 @@ describe('Level 2 — retrieval (e2e)', () => {
 
   it('does not spend the budget on failures that are not code guesses', async () => {
     const { lockerId, pickupCode } = await seedStoredPackage();
-    const customer = await customerToken();
-    const stranger = await customerToken(OTHER_CUSTOMER_ID);
+    const station = await stationToken();
 
-    // Five refusals that are not guesses: an unknown locker, and someone
-    // else's parcel. Neither is a wrong code, so neither is counted.
-    for (let i = 0; i < 5; i++) {
+    // Ten refusals that are not guesses at this door's code: a locker id that
+    // does not exist. Counting those would let a mistyped id freeze a locker
+    // with someone's parcel in it.
+    for (let i = 0; i < 10; i++) {
       await http()
         .post('/packages/retrieve')
-        .set('authorization', `Bearer ${customer}`)
+        .set('authorization', `Bearer ${station}`)
         .send({
           lockerId: '0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d',
           pickupCode: '123456',
         })
         .expect(404);
-      await http()
-        .post('/packages/retrieve')
-        .set('authorization', `Bearer ${stranger}`)
-        .send({ lockerId, pickupCode })
-        .expect(404);
     }
 
-    // and the customer still collects normally
+    // and the parcel still comes out normally
     await http()
       .post('/packages/retrieve')
-      .set('authorization', `Bearer ${customer}`)
+      .set('authorization', `Bearer ${station}`)
       .send({ lockerId, pickupCode })
       .expect(200);
   });
@@ -234,21 +209,138 @@ describe('Level 2 — retrieval (e2e)', () => {
       .send({ lockerId, pickupCode })
       .expect(403);
 
+    // A customer token opens nothing either: doors are opened at the station,
+    // and the app's job ends at telling its owner which one to walk to.
+    await http()
+      .post('/packages/retrieve')
+      .set('authorization', `Bearer ${await token('CUSTOMER', CUSTOMER_ID)}`)
+      .send({ lockerId, pickupCode })
+      .expect(403);
+
     await http()
       .post('/packages/retrieve')
       .send({ lockerId, pickupCode })
       .expect(401);
   });
 
+  it('re-issues a code to the parcel owner, killing the old one', async () => {
+    const { lockerId, pickupCode, packageId } = await seedStoredPackage();
+    const station = await stationToken();
+    const customer = await token('CUSTOMER', CUSTOMER_ID);
+
+    // The customer lost the SMS and asks their own app for another code.
+    const reissued = await http()
+      .post(`/packages/${packageId}/pickup-code`)
+      .set('authorization', `Bearer ${customer}`)
+      .expect(200);
+    expect(reissued.body).toMatchObject({ packageId, lockerId, lockerCode: 'A-01' });
+    expect(reissued.body.pickupCode).toMatch(/^\d{6}$/);
+    expect(reissued.body.pickupCode).not.toBe(pickupCode);
+
+    // The old code is worthless from that moment...
+    await http()
+      .post('/packages/retrieve')
+      .set('authorization', `Bearer ${station}`)
+      .send({ lockerId, pickupCode })
+      .expect(404);
+
+    // ...and the new one opens the same locker.
+    await http()
+      .post('/packages/retrieve')
+      .set('authorization', `Bearer ${station}`)
+      .send({ lockerId, pickupCode: reissued.body.pickupCode })
+      .expect(200);
+  });
+
+  it('re-issues only to the parcel’s own customer', async () => {
+    const { packageId } = await seedStoredPackage();
+
+    const stranger = await token(
+      'CUSTOMER',
+      '22222222-2222-4222-8222-222222222222',
+    );
+    const refused = await http()
+      .post(`/packages/${packageId}/pickup-code`)
+      .set('authorization', `Bearer ${stranger}`)
+      .expect(404);
+    expect(refused.body.code).toBe('pickup_code_reissue_failed');
+
+    // Not the station's call either: the cabinet knows a door, not a person.
+    await http()
+      .post(`/packages/${packageId}/pickup-code`)
+      .set('authorization', `Bearer ${await stationToken()}`)
+      .expect(403);
+  });
+
+  it('refuses a new code once the parcel is out of the locker', async () => {
+    const { lockerId, pickupCode, packageId } = await seedStoredPackage();
+    const customer = await token('CUSTOMER', CUSTOMER_ID);
+
+    await http()
+      .post('/packages/retrieve')
+      .set('authorization', `Bearer ${await stationToken()}`)
+      .send({ lockerId, pickupCode })
+      .expect(200);
+
+    const refused = await http()
+      .post(`/packages/${packageId}/pickup-code`)
+      .set('authorization', `Bearer ${customer}`)
+      .expect(409);
+    expect(refused.body.code).toBe('package_not_stored');
+  });
+
+  it('stops giving one parcel codes once its window is spent', async () => {
+    const { packageId } = await seedStoredPackage();
+    const customer = await token('CUSTOMER', CUSTOMER_ID);
+    const reissue = () =>
+      http()
+        .post(`/packages/${packageId}/pickup-code`)
+        .set('authorization', `Bearer ${customer}`);
+
+    // The count is never given back — three codes is three codes, however the
+    // parcel got there.
+    for (let i = 0; i < 3; i++) await reissue().expect(200);
+
+    const blocked = await reissue().expect(429);
+    expect(blocked.body.code).toBe('too_many_pickup_code_reissues');
+    expect(Number(blocked.headers['retry-after'])).toBeGreaterThan(0);
+  });
+
+  it('lets a new code lift the block five wrong guesses put on the door', async () => {
+    const { lockerId, pickupCode, packageId } = await seedStoredPackage();
+    const station = await stationToken();
+    const customer = await token('CUSTOMER', CUSTOMER_ID);
+    const attempt = (code: string) =>
+      http()
+        .post('/packages/retrieve')
+        .set('authorization', `Bearer ${station}`)
+        .send({ lockerId, pickupCode: code });
+
+    const wrong = ['100000', '100001', '100002', '100003', '100004', '100005']
+      .filter((c) => c !== pickupCode)
+      .slice(0, 5);
+    for (const code of wrong) await attempt(code).expect(404);
+    await attempt(pickupCode).expect(429);
+
+    // Someone else's guessing must not strand the owner in front of their own
+    // locker: a new code makes those guesses meaningless and reopens the door.
+    const reissued = await http()
+      .post(`/packages/${packageId}/pickup-code`)
+      .set('authorization', `Bearer ${customer}`)
+      .expect(200);
+
+    await attempt(reissued.body.pickupCode).expect(200);
+  });
+
   it('retrieves a package at most once under concurrent requests', async () => {
     const { lockerId, pickupCode } = await seedStoredPackage();
-    const customer = await customerToken();
+    const station = await stationToken();
 
     const statuses = await Promise.all(
       Array.from({ length: 6 }, () =>
         http()
           .post('/packages/retrieve')
-          .set('authorization', `Bearer ${customer}`)
+          .set('authorization', `Bearer ${station}`)
           .send({ lockerId, pickupCode })
           .then((r) => r.status),
       ),

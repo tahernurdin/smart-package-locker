@@ -58,6 +58,23 @@ export class LockerAssignment {
   }
 
   /**
+   * Returns a copy holding a new pickup code. The episode is otherwise
+   * untouched — same locker, same `storedAt`, so the fee is unaffected by a
+   * customer asking for a new code.
+   */
+  withPickupCodeHash(pickupCodeHash: string): LockerAssignment {
+    return new LockerAssignment({
+      id: this.id,
+      lockerId: this.lockerId,
+      pickupCodeHash,
+      storedByAgent: this.storedByAgent,
+      storedAt: this.storedAt,
+      retrievedAt: this.retrievedAt,
+      storageFeeMinor: this.storageFeeMinor,
+    });
+  }
+
+  /**
    * Returns a closed copy. `retrievedAt` is clamped to `storedAt` so a frozen
    * test clock behind `storedAt` can't violate the `retrieved_at >= stored_at`
    * DB constraint.

@@ -70,6 +70,7 @@ class FakePackageRepo implements PackageRepository {
     this.freeLockers = this.freeLockers.filter((l) => l.id !== candidate.id);
     return { lockerId: candidate.id, lockerCode: candidate.code };
   }
+  async savePickupCode(): Promise<void> {}
   async saveRetrieval(): Promise<void> {}
 }
 

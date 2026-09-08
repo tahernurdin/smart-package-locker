@@ -204,9 +204,10 @@ describe('Package listings (e2e)', () => {
       const packageId = await registerPackage(agent, ALICE);
       const stored = await storePackage(agent, packageId);
 
+      // Collected at the station, not from the app.
       await http()
         .post('/packages/retrieve')
-        .set('authorization', `Bearer ${alice}`)
+        .set('authorization', `Bearer ${await token('STATION')}`)
         .send({ lockerId: stored.lockerId, pickupCode: stored.pickupCode })
         .expect(200);
 

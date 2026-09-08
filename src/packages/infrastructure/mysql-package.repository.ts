@@ -151,6 +151,28 @@ export class MysqlPackageRepository implements PackageRepository {
     });
   }
 
+  async savePickupCode(pkg: Package): Promise<void> {
+    const assignment = pkg.assignment;
+    if (!assignment) {
+      throw new Error('savePickupCode: package has no assignment');
+    }
+    // `retrieved_at IS NULL` is the same guard `saveRetrieval` uses: whichever
+    // of the two lands first wins, and a code issued into a closed assignment
+    // would be a code for a locker that is already empty.
+    const [res] = await this.pool.query<ResultSetHeader>(
+      `UPDATE locker_assignment
+       SET pickup_code_hash = :hash
+       WHERE id = :id AND retrieved_at IS NULL`,
+      { hash: assignment.pickupCodeHash, id: assignment.id },
+    );
+    if (res.affectedRows === 0) throw new PackageAlreadyRetrievedError();
+
+    await this.pool.query(
+      `UPDATE package SET updated_at = :updatedAt WHERE id = :id`,
+      { updatedAt: pkg.updatedAt, id: pkg.id },
+    );
+  }
+
   async saveRetrieval(pkg: Package): Promise<void> {
     const assignment = pkg.assignment;
     if (!assignment) {

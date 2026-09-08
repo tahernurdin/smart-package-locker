@@ -19,6 +19,7 @@ class FakePackageRepo implements PackageRepository {
   async reserveLockerAndStore() {
     return null;
   }
+  async savePickupCode() {}
   async saveRetrieval() {}
 }
 

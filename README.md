@@ -13,12 +13,13 @@ and [`api.http`](api.http) is a ready-to-run request collection for the whole AP
 | Level | Scope | State |
 |---|---|---|
 | 1 | Create lockers, list with availability, store a package (smallest fit + pickup code) | ✅ Done |
-| 2 | Customer retrieval (locker id + pickup code), locker freed on pickup | ✅ Done |
+| 2 | Retrieval at the station (locker id + pickup code), locker freed on pickup | ✅ Done |
 | 3 | Tiered extended-storage fees, charged and snapshotted on retrieval | ✅ Done |
 | 4 | Concurrency hardening (`FOR UPDATE … SKIP LOCKED` + bounded retry) | ✅ Done |
 
-Beyond the brief, and done: station and locker CRUD, operator-published storage-rate versions, and
-paged/filtered/sorted listings for lockers and packages.
+Beyond the brief, and done: station and locker CRUD, operator-published storage-rate versions,
+paged/filtered/sorted listings for lockers and packages, and a re-issue endpoint for a customer who
+lost their pickup code.
 
 ## Assumptions
 
@@ -26,11 +27,16 @@ paged/filtered/sorted listings for lockers and packages.
   `customerId` this service is given; it stores that reference and never resolves it. Creating,
   updating and notifying customers — including delivering the pickup code by SMS/email — are out of
   scope per the brief, so there is no `customer` table and no `/customers` endpoint.
-- **A pickup code is only good in the hands of the customer it was issued to.** Retrieval needs the
-  locker id and the code *and* a token whose subject is the `customerId` the parcel was registered
-  for — a leaked code collects nothing on its own. Ownership is never a field on the request, so
-  there is no shape in which a caller names someone else; it comes from the token, as it does for
-  `GET /packages/mine`.
+- **The pickup code is the credential, because nobody is logged in at a locker.** The brief's
+  retrieval is a person at a cabinet: *"the customer provides the locker ID and pickup code"*. So
+  `POST /packages/retrieve` is called by the **station**, not by the customer — the token proves
+  which locker bank is asking, and the code alone proves the parcel is the caller's. That is why
+  the code is generated per assignment, stored only as a SHA-256 hash, compared in constant time,
+  and capped at five wrong guesses per door. The customer's own token is for the app
+  (`GET /packages/mine`), which shows them where to walk and opens nothing. The cost of counting per
+  door rather than per caller is accepted deliberately: someone at a keypad can freeze one locker
+  for fifteen minutes. Counting per caller is not available — there is no caller identity — and the
+  attacker has to be standing at the cabinet to do it.
 - **Stations are this service's data**, unlike customers: `locker.station_id` references them,
   `GET /lockers` joins them, and `POST /lockers` requires one. So operators manage them directly
   (`/stations`).
@@ -64,7 +70,7 @@ curl localhost:3000/health/ready    # {"status":"ok","db":"up"}  (503 {"status":
 ## Getting a token
 
 Every route but `/health` and `/auth/dev-token` needs `Authorization: Bearer <token>` for the right
-role (`OPERATOR`, `AGENT`, `CUSTOMER`). In dev, mint one:
+role (`OPERATOR`, `AGENT`, `CUSTOMER`, `STATION`). In dev, mint one:
 
 ```bash
 curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
@@ -75,8 +81,8 @@ curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
 or read them from the startup logs, or run `npm run token -- --role AGENT`.
 
 `sub` is optional and defaults to `<role>-dev`. A customer's token must carry **their customer id**
-as its subject: it is what `GET /packages/mine` filters on and what `POST /packages/retrieve` checks
-the parcel against. A bare `token('CUSTOMER')` retrieves nothing.
+as its subject — it is what `GET /packages/mine` filters on, so a bare `token('CUSTOMER')` lists
+nothing. A `STATION` token needs no subject: it says a locker bank is calling, never who is at it.
 
 ```bash
 curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
@@ -123,8 +129,11 @@ CUSTOMER=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: applicat
       -d "{\"role\":\"CUSTOMER\",\"sub\":\"$CUSTOMER_ID\"}" | jq -r .token)
 curl -s 'localhost:3000/packages/mine?status=STORED' -H "authorization: Bearer $CUSTOMER"
 
-# Customer: retrieve it with the locker id + pickup code
-curl -sXPOST localhost:3000/packages/retrieve -H "authorization: Bearer $CUSTOMER" \
+# Station: the customer keys the code into the cabinet, which calls this with
+# its own token — there is no customer session at a keypad
+STATION_TOKEN=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
+      -d '{"role":"STATION"}' | jq -r .token)
+curl -sXPOST localhost:3000/packages/retrieve -H "authorization: Bearer $STATION_TOKEN" \
   -H 'content-type: application/json' \
   -d "{\"lockerId\":$(jq .lockerId <<<"$STORED"),\"pickupCode\":$(jq .pickupCode <<<"$STORED")}"
 # {"packageId":"…","lockerCode":"A-SMALL","retrievedAt":"…",
@@ -134,22 +143,21 @@ curl -sXPOST localhost:3000/packages/retrieve -H "authorization: Bearer $CUSTOME
 ```
 
 If no serviceable locker fits, the store call returns `409 no_suitable_locker`. A retrieval answers
-`404 retrieval_failed` when the locker is unknown, holds nothing, holds someone else's parcel, or
-the code is wrong — one answer for all four, so the endpoint is never an oracle for the parcels it
-protects.
+`404 retrieval_failed` when the locker is unknown, holds nothing, or the code is wrong — one answer
+for all three, so the endpoint is never an oracle for the parcels it protects.
 
 ## The customer journey
 
-What the walkthrough does with `curl`, a phone app does in four screens. The point of listing it
-this way is that each screen maps to exactly one endpoint, and the two things a customer must never
-be able to name — whose parcels these are, and whose parcel is in that locker — are never in a
-request body.
+What the walkthrough does with `curl`, a customer does across a phone app and a cabinet. Setting it
+out step by step is what makes the split visible: the app is a *view* of parcels, authenticated as
+the customer, and the cabinet is a *door*, authenticated as the station and unlocked by the code
+alone.
 
 1. **The parcel arrives.** The agent's drop (`POST /packages/:id/store`) returns the pickup code in
    plaintext, once, and it is never readable again — only a SHA-256 hash is stored. Getting it to
    the customer is out of band (SMS, push, email) — the point where that send belongs is marked
    `TODO(notify)` in `StorePackageService`, at the one moment the code exists in plaintext.
-2. **The customer reaches the station and opens the app.** `GET /packages/mine?status=STORED`. Whose
+2. **The customer opens the app.** `GET /packages/mine?status=STORED`, with their own token. Whose
    parcels these are comes from the token subject: `ListMyPackagesQueryDto` has no `customerId`
    field at all, and `forbidNonWhitelisted` turns a request that supplies one into a `400` rather
    than ignoring it. So there is no shape of request in which a customer enumerates someone else's
@@ -157,13 +165,38 @@ request body.
 3. **They tap a parcel.** The row already carries everything the screen needs — `stationName` for
    the site, `lockerCode` for the door to walk to, `lockerId` for the call to come, plus `size` and
    `storedAt`. It never carries the pickup code.
-4. **They key in the code.** `POST /packages/retrieve` with `{ lockerId, pickupCode }`. The code
-   alone opens nothing: the parcel must also belong to the token's subject, so a code found on a
-   dropped phone is as useless as a wrong one — both answer `404 retrieval_failed`. Five wrong codes
-   at one door turn that customer away from it for fifteen minutes. On success the fee is settled,
-   the locker frees, and the response reports `opened: true`.
+4. **They walk to the cabinet and key the code in.** The keypad calls
+   `POST /packages/retrieve` with `{ lockerId, pickupCode }` under the **station's** token — the
+   person standing there has no session, which is the whole reason a pickup code exists. The code is
+   therefore the only credential: matched against a per-assignment SHA-256 hash in constant time,
+   with an unknown locker, an empty one and a wrong code all answering the same
+   `404 retrieval_failed`. Five wrong codes at one door close it to everyone for fifteen minutes. On
+   success the fee is settled, the locker frees, and the response reports `opened: true`.
 
-**Two gaps this leaves, both deliberate and both marked in the code.**
+5. **If they no longer have the code** — the SMS is gone, or someone has been guessing at their door
+   and frozen it — the app asks for a new one: `POST /packages/:id/pickup-code`, authenticated as the
+   customer. It answers with a fresh code, voids the old one, and lifts that locker's failed-attempt
+   block, since those guesses were against a code that no longer exists. Three codes per parcel per
+   hour (`PICKUP_CODE_REISSUE_MAX`).
+
+   That cap is on **cost, not on guessing** — whoever can call this is handed the new code in the
+   response, so there was never anything to guess. What a re-issue does spend is a message to the
+   customer, so the budget counts codes issued and nothing ever gives it back: three on one parcel
+   and that parcel waits out the window. Both places a code enters the world carry a `TODO(notify)`
+   for that send — `StorePackageService` and `ReissuePickupCodeService`.
+
+   Two counters meet on this endpoint and they are not the same one. The re-issue budget only ever
+   grows; the *door's* wrong-code block is the one that gets cleared, and clearing it refunds
+   nothing.
+
+The customer's token and the pickup code do different jobs, and neither substitutes for the other:
+the token decides **which parcels you may look at**, the code decides **which door may open**. The
+app can tell you where your parcel is and cannot open it; the keypad can open a door and has no idea
+who you are. Re-issuing is the single point where the two meet, and it is the identity that does the
+work there — the caller is asking *for* the credential, so it can only ever be answered for a parcel
+the token's own subject owns.
+
+**One gap this leaves, and one consequence worth stating.**
 
 `opened: true` is a hardcoded literal. Nothing in this service talks to a latch — there is no
 hardware to talk to — so the point where it would is marked with a `TODO(hardware)` in
@@ -172,10 +205,10 @@ request that actually claimed the parcel could ever command a door. Closing that
 `LockerDoor` port in `lockers/domain/` with an adapter behind it, and a reconciliation path for the
 case the door refuses after the parcel is already recorded as collected.
 
-And a customer who loses the SMS is stuck: because only the hash is stored, no endpoint can re-read
-the code, and there is no re-issue route. Self-service recovery needs a new use case — re-generate
-the code for a `STORED` parcel the caller owns, replacing the stored hash — which is a small
-addition on top of what is here, not a change to it.
+The consequence: because only the hash is stored, a lost code can never be re-read —
+`POST /packages/:id/pickup-code` mints a *new* one rather than recovering the old. That is the right
+behaviour (a recoverable code would mean a reversible hash), but it means every re-issue invalidates
+whatever the customer might still find in an old SMS.
 
 ## Endpoints
 
@@ -198,7 +231,8 @@ addition on top of what is here, not a change to it.
 | `GET` | `/storage-rates` | Operator | List published versions, newest first; `?sizeCode=` |
 | `POST` | `/packages` | Agent | Register a parcel `{ size, customerId, trackingRef? }` → `{ packageId, status }` |
 | `POST` | `/packages/:id/store` | Agent | Drop it at a station `{ stationId }` → the smallest fitting locker there → `{ lockerId, lockerCode, pickupCode, status }` |
-| `POST` | `/packages/retrieve` | Customer | Retrieve `{ lockerId, pickupCode }` — the caller must own the parcel; opens the locker, returns the fee |
+| `POST` | `/packages/:id/pickup-code` | Customer | Re-issue the pickup code for the caller's own stored parcel — returns the new code once, and voids the old one |
+| `POST` | `/packages/retrieve` | Station | Retrieve `{ lockerId, pickupCode }` from the cabinet's keypad — the code is the credential; opens the locker, returns the fee |
 | `GET` | `/packages/mine` | Customer | The caller's own parcels, paged |
 | `GET` | `/packages` | Operator | Search every customer's parcels, paged |
 
@@ -288,7 +322,9 @@ and `ix_locker_allocation (station_id, status, size_rank, code)` serves the filt
 and the smallest-first order together, so `LIMIT 1` stops at the first match instead of sorting the
 bank (`migrations/005_locker_size_rank.sql`).
 
-Retrieval concurrency was handled in Level 2 by the conditional update described above.
+Retrieval concurrency was handled in Level 2 by the conditional update described above, and
+re-issuing a pickup code writes through the same guard — whichever of the two lands first wins, so a
+new code can never be minted into a locker that was just emptied.
 
 Covered by: the retry specs in `store-package.service.spec.ts` (a lost race retried and won, and
 given up on after three); 8 concurrent stores against a single locker → exactly one `200` and one
@@ -388,7 +424,7 @@ npm run start:dev
 ```bash
 npm run test                  # unit tests (no DB)
 npm run lint
-docker compose up -d mysql    # e2e needs a MySQL
+docker compose up -d mysql redis   # e2e needs both
 npm run test:e2e              # every test/*.e2e-spec.ts
 ```
 
@@ -396,7 +432,7 @@ Unit specs are `*.spec.ts` beside the code, driving domain objects and applicati
 in-memory fakes. E2E specs are `test/*.e2e-spec.ts`, running controller-to-DB against a real MySQL
 with no mocks: the Level 1–3 flows (L3 fakes the clock to age a package), station and locker
 management including the paged listing, storage-rate publishing and the seeded schedules, both
-package listings, and the health probes. Suites run serially and clear their tables between tests,
+package listings, the pickup-attempt limiter against a real Redis, and the health probes. Suites run serially and clear their tables between tests,
 keeping the rows seeded by `migrations/002_seed.sql`.
 
 They run against **their own database** (`locker_test`, set by the checked-in `.env.test`), never
@@ -418,10 +454,11 @@ npx vitest run -t "assigns the smallest locker that fits"
 | Schema | Plain `.sql` migrations + a small runner (`npm run db:migrate`, also applied on API boot) | One path for local, Docker and e2e; each file documents the decision it encodes |
 | IDs | App-generated UUID v4 stored as `CHAR(36)`, behind an `IdGenerator` port | Readable across tables, deterministic under test |
 | Time | Every `DATETIME(6)` supplied by the app through a `Clock` port, never a DB default | Fees depend on elapsed time, so tests must be able to age a package |
-| Pickup code | 6 digits, stored as a SHA-256 hash, compared with `crypto.timingSafeEqual`, returned in plaintext exactly once | No native deps, and the stored form collects nothing if the table leaks |
+| Pickup code | 6 digits, stored as a SHA-256 hash, compared with `crypto.timingSafeEqual`, in plaintext only in the response that issues it | It is the only credential at a keypad, so the stored form must collect nothing if the table leaks |
 | Auth | `@nestjs/jwt` + `JwtAuthGuard` + `RolesGuard` + `@Roles()`; `POST /auth/dev-token` is env-gated | The brief asks for a dummy token per role, not an identity provider |
 | Money | `BIGINT` minor units in one configured currency (`CURRENCY`, default `AUD`) | No floating-point money |
-| Roles | `OPERATOR`, `AGENT`, `CUSTOMER` | Per the brief |
+| Roles | `OPERATOR`, `AGENT`, `CUSTOMER`, plus `STATION` | The brief's three actors, plus the cabinet itself — retrieval is called by hardware, not by a logged-in customer |
+| Rate limits | Two Redis counters behind ports in `packages/domain/`, both failing open | Wrong codes per door and codes issued per parcel are different things guarding different risks — guessing and cost — so they never share a budget |
 
 ### Trade-offs
 
@@ -442,10 +479,11 @@ expresses well; you end up dropping to raw SQL for exactly the parts that matter
 maintaining both. The calculus flips with breadth: a large CRUD surface of shallow entities is where
 the generated mapping earns back its cost, and this is a narrow domain with a few sharp queries.
 
-**Lua for the attempt counter.** Five wrong pickup codes at one locker turn that customer away from
-it for fifteen minutes, counted in Redis against a `{ customer, locker }` key and cleared on a
-successful retrieval. `shared/redis/attempt-counter.scripts.ts` holds that as two Lua scripts,
-registered with `defineScript` so they go out as `EVALSHA`. This is Redis-side Lua, not a JS `eval`
+**Lua for the attempt counter.** Five wrong pickup codes at one locker close that door for fifteen
+minutes, counted in Redis against the locker id and cleared on a successful retrieval — and the same
+two scripts, under a different key, cap how many codes one parcel may be re-issued.
+`shared/redis/attempt-counter.scripts.ts` holds them as Lua, registered with `defineScript` so they
+go out as `EVALSHA`. This is Redis-side Lua, not a JS `eval`
 — keys and arguments travel as separate protocol arguments and nothing is compiled in-process — but
 it is still a second language in the repo, exercisable only against a real Redis (hence
 `test/pickup-attempt-limiter.e2e-spec.ts` rather than a unit spec), and `defineScript`'s reply
@@ -461,9 +499,9 @@ simplification to make if this file is ever touched again.
 The third option, a library, was considered and rejected on shape rather than on principle.
 `@nestjs/throttler` is a guard: it counts requests before the handler runs, so it cannot tell a
 wrong pickup code from an unknown locker and has no way to clear the counter on success — and those
-two distinctions are the entire point of this limiter. Counting an unknown locker or someone else's
-parcel would let a mistyped id spend an honest customer's budget, and not clearing on success would
-punish a customer for four bad guesses they already recovered from.
+two distinctions are the entire point of this limiter. Counting an unknown locker would let a
+mistyped id freeze a door with someone's parcel behind it, and not clearing on success would leave a
+door cold for a customer who already collected after four bad guesses.
 `rate-limiter-flexible` is the right shape, with `blockDuration`
 matching the policy exactly, and would be the choice if the counting logic grew beyond one key.
 
@@ -494,8 +532,8 @@ The brief ships a PostgreSQL reference model; `migrations/001_init.sql` is its M
 
 ```
 src/
-  shared/         config, database (pool + migrator + transaction), clock, id,
-                  pickup-code, pagination, errors, auth
+  shared/         config, database (pool + migrator + transaction), redis, clock,
+                  id, pickup-code, pagination, errors, auth
   dev-token/      POST /auth/dev-token + the CLI behind `npm run token`
   health/         liveness + readiness probes
   stations/       domain / application / infrastructure / interface  (+ module)
@@ -504,7 +542,7 @@ src/
   storage-rates/  domain / application / infrastructure / interface  (+ module)
 migrations/       001 schema · 002 seed · 003 rate versions · 004 listing indexes
                   · 005 locker size rank — applied in order, tracked in schema_migrations
-test/             *.e2e-spec.ts against a real MySQL
+test/             *.e2e-spec.ts against a real MySQL (and Redis, for the limiter)
 api.http          the whole API as runnable requests
 ```
 

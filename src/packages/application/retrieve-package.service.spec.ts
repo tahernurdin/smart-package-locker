@@ -44,23 +44,21 @@ function activePackage(code = CODE, customerId = CUSTOMER) {
 }
 
 /**
- * Counts in memory what the Redis adapter counts in Redis, with the same
- * per-(customer, locker) key, so the service's use of the port is exercised
- * without one.
+ * Counts in memory what the Redis adapter counts in Redis, against the same
+ * per-locker key, so the service's use of the port is exercised without one.
  */
 function fakeLimiter(opts: { blockFor?: number } = {}) {
   const failures = new Map<string, number>();
-  const key = (c: string, l: string) => `${c}:${l}`;
   return {
     failures,
     check: vi.fn(async () =>
       opts.blockFor ? { retryAfterSeconds: opts.blockFor } : null,
     ),
-    recordFailure: vi.fn(async (c: string, l: string) => {
-      failures.set(key(c, l), (failures.get(key(c, l)) ?? 0) + 1);
+    recordFailure: vi.fn(async (lockerId: string) => {
+      failures.set(lockerId, (failures.get(lockerId) ?? 0) + 1);
     }),
-    clear: vi.fn(async (c: string, l: string) => {
-      failures.delete(key(c, l));
+    clear: vi.fn(async (lockerId: string) => {
+      failures.delete(lockerId);
     }),
   };
 }
@@ -108,7 +106,7 @@ describe('RetrievePackageService', () => {
       fee: 0,
     });
 
-    const result = await service.retrieve(CUSTOMER, {
+    const result = await service.retrieve({
       lockerId: 'l-1',
       pickupCode: CODE,
     });
@@ -134,7 +132,7 @@ describe('RetrievePackageService', () => {
       fee: 1500,
     });
 
-    const result = await service.retrieve(CUSTOMER, {
+    const result = await service.retrieve({
       lockerId: 'l-1',
       pickupCode: CODE,
     });
@@ -145,10 +143,10 @@ describe('RetrievePackageService', () => {
     );
   });
 
-  it('fails the same way for an unknown locker, no active package, a wrong code, or another customer', async () => {
+  it('fails the same way for an unknown locker, no active package, or a wrong code', async () => {
     const unknownLocker = build({ locker: null });
     await expect(
-      unknownLocker.service.retrieve(CUSTOMER, {
+      unknownLocker.service.retrieve({
         lockerId: 'l-1',
         pickupCode: CODE,
       }),
@@ -156,22 +154,15 @@ describe('RetrievePackageService', () => {
 
     const empty = build({ locker: theLocker(), pkg: null });
     await expect(
-      empty.service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: CODE }),
+      empty.service.retrieve({ lockerId: 'l-1', pickupCode: CODE }),
     ).rejects.toThrow(PackageNotFoundForRetrievalError);
 
     const wrongCode = build({ locker: theLocker(), pkg: activePackage() });
     await expect(
-      wrongCode.service.retrieve(CUSTOMER, {
+      wrongCode.service.retrieve({
         lockerId: 'l-1',
         pickupCode: '000000',
       }),
-    ).rejects.toThrow(PackageNotFoundForRetrievalError);
-
-    // The right code in the wrong hands: same error, so it says nothing about
-    // whether that locker holds a parcel.
-    const stranger = build({ locker: theLocker(), pkg: activePackage() });
-    await expect(
-      stranger.service.retrieve('c-2', { lockerId: 'l-1', pickupCode: CODE }),
     ).rejects.toThrow(PackageNotFoundForRetrievalError);
   });
 
@@ -181,45 +172,34 @@ describe('RetrievePackageService', () => {
       pkg: activePackage(),
     });
     await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: '111111' }),
+      service.retrieve({ lockerId: 'l-1', pickupCode: '111111' }),
     ).rejects.toThrow();
-    expect(saveRetrieval).not.toHaveBeenCalled();
-  });
-
-  it('does not record a retrieval for a parcel registered to someone else', async () => {
-    const { service, saveRetrieval } = build({
-      locker: theLocker(),
-      pkg: activePackage(CODE, 'c-9'),
-    });
-    await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: CODE }),
-    ).rejects.toThrow(PackageNotFoundForRetrievalError);
     expect(saveRetrieval).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed pickup code', async () => {
     const { service } = build({ locker: theLocker(), pkg: activePackage() });
     await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: '12' }),
+      service.retrieve({ lockerId: 'l-1', pickupCode: '12' }),
     ).rejects.toThrow(InvalidPickupCodeError);
   });
 });
 
 describe('RetrievePackageService attempt limiting', () => {
-  it('counts a wrong code against the caller and that locker', async () => {
+  it('counts every wrong code at one door against that door', async () => {
     const { service, attempts } = build({
       locker: theLocker(),
       pkg: activePackage(),
     });
 
     await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: '000000' }),
+      service.retrieve({ lockerId: 'l-1', pickupCode: '000000' }),
     ).rejects.toThrow(PackageNotFoundForRetrievalError);
     await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: '111111' }),
+      service.retrieve({ lockerId: 'l-1', pickupCode: '111111' }),
     ).rejects.toThrow(PackageNotFoundForRetrievalError);
 
-    expect(attempts.failures.get('c-1:l-1')).toBe(2);
+    expect(attempts.failures.get('l-1')).toBe(2);
   });
 
   it('counts nothing when the failure was not a guess at a code', async () => {
@@ -227,7 +207,7 @@ describe('RetrievePackageService attempt limiting', () => {
     // honest customer must not burn their budget on either.
     const unknownLocker = build({ locker: null });
     await expect(
-      unknownLocker.service.retrieve(CUSTOMER, {
+      unknownLocker.service.retrieve({
         lockerId: 'l-9',
         pickupCode: CODE,
       }),
@@ -236,28 +216,22 @@ describe('RetrievePackageService attempt limiting', () => {
 
     const empty = build({ locker: theLocker(), pkg: null });
     await expect(
-      empty.service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: CODE }),
+      empty.service.retrieve({ lockerId: 'l-1', pickupCode: CODE }),
     ).rejects.toThrow(PackageNotFoundForRetrievalError);
     expect(empty.attempts.recordFailure).not.toHaveBeenCalled();
-
-    const stranger = build({ locker: theLocker(), pkg: activePackage() });
-    await expect(
-      stranger.service.retrieve('c-2', { lockerId: 'l-1', pickupCode: CODE }),
-    ).rejects.toThrow(PackageNotFoundForRetrievalError);
-    expect(stranger.attempts.recordFailure).not.toHaveBeenCalled();
   });
 
-  it('counts against the caller and the locker, so budgets do not bleed', async () => {
+  it('counts against the locker that was tried, and nothing else', async () => {
     const { service, attempts } = build({
       locker: theLocker(),
       pkg: activePackage(),
     });
 
     await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: '000000' }),
+      service.retrieve({ lockerId: 'l-1', pickupCode: '000000' }),
     ).rejects.toThrow();
 
-    expect(attempts.recordFailure).toHaveBeenCalledWith(CUSTOMER, 'l-1');
+    expect(attempts.recordFailure).toHaveBeenCalledWith('l-1');
     expect(attempts.failures.size).toBe(1);
   });
 
@@ -270,7 +244,7 @@ describe('RetrievePackageService attempt limiting', () => {
 
     // Correct code, still refused, and the refusal carries how long to wait.
     await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: CODE }),
+      service.retrieve({ lockerId: 'l-1', pickupCode: CODE }),
     ).rejects.toMatchObject({
       code: 'too_many_retrieval_attempts',
       kind: 'rate_limited',
@@ -291,7 +265,7 @@ describe('RetrievePackageService attempt limiting', () => {
       blockFor: 30,
     });
     await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: '12' }),
+      service.retrieve({ lockerId: 'l-1', pickupCode: '12' }),
     ).rejects.toThrow(TooManyRetrievalAttemptsError);
   });
 
@@ -300,8 +274,8 @@ describe('RetrievePackageService attempt limiting', () => {
       locker: theLocker(),
       pkg: activePackage(),
     });
-    await service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: CODE });
-    expect(attempts.clear).toHaveBeenCalledWith(CUSTOMER, 'l-1');
+    await service.retrieve({ lockerId: 'l-1', pickupCode: CODE });
+    expect(attempts.clear).toHaveBeenCalledWith('l-1');
   });
 
   it('does not count losing a concurrent race as a failed attempt', async () => {
@@ -314,7 +288,7 @@ describe('RetrievePackageService attempt limiting', () => {
     saveRetrieval.mockRejectedValueOnce(new PackageAlreadyRetrievedError());
 
     await expect(
-      service.retrieve(CUSTOMER, { lockerId: 'l-1', pickupCode: CODE }),
+      service.retrieve({ lockerId: 'l-1', pickupCode: CODE }),
     ).rejects.toThrow(PackageAlreadyRetrievedError);
     expect(attempts.recordFailure).not.toHaveBeenCalled();
   });

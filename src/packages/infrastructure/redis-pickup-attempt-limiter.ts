@@ -24,13 +24,10 @@ export class RedisPickupAttemptLimiter implements PickupAttemptLimiter {
     @Inject(APP_CONFIG) private readonly config: AppConfiguration,
   ) {}
 
-  async check(
-    customerId: string,
-    lockerId: string,
-  ): Promise<PickupAttemptBlock | null> {
+  async check(lockerId: string): Promise<PickupAttemptBlock | null> {
     const remainingMs = await this.run('check', () =>
       this.redis.readAttemptBlock(
-        this.key(customerId, lockerId),
+        this.key(lockerId),
         this.config.retrievalLimit.maxAttempts,
       ),
     );
@@ -39,17 +36,17 @@ export class RedisPickupAttemptLimiter implements PickupAttemptLimiter {
     return { retryAfterSeconds: Math.ceil(ms / 1000) };
   }
 
-  async recordFailure(customerId: string, lockerId: string): Promise<void> {
+  async recordFailure(lockerId: string): Promise<void> {
     await this.run('recordFailure', () =>
       this.redis.countAttemptFailure(
-        this.key(customerId, lockerId),
+        this.key(lockerId),
         this.config.retrievalLimit.lockoutSeconds * 1000,
       ),
     );
   }
 
-  async clear(customerId: string, lockerId: string): Promise<void> {
-    await this.run('clear', () => this.redis.del(this.key(customerId, lockerId)));
+  async clear(lockerId: string): Promise<void> {
+    await this.run('clear', () => this.redis.del(this.key(lockerId)));
   }
 
   /**
@@ -71,8 +68,8 @@ export class RedisPickupAttemptLimiter implements PickupAttemptLimiter {
     }
   }
 
-  /** The caller's own subject, never the parcel owner's — see the port. */
-  private key(customerId: string, lockerId: string): string {
-    return `retrieval:attempts:${customerId}:${lockerId}`;
+  /** One door, one counter — there is no caller identity at a keypad. */
+  private key(lockerId: string): string {
+    return `retrieval:attempts:${lockerId}`;
   }
 }
