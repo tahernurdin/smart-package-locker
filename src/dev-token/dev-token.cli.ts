@@ -1,6 +1,6 @@
 import { JwtService, type JwtSignOptions } from '@nestjs/jwt';
-import { loadConfiguration } from '../config/configuration.js';
-import { ALL_ROLES, type Role } from './roles.js';
+import { ALL_ROLES, type Role } from '../shared/auth/roles.js';
+import { loadConfiguration } from '../shared/config/configuration.js';
 
 function parseArgs(argv: string[]): Record<string, string> {
   const out: Record<string, string> = {};

@@ -1,9 +1,12 @@
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module.js';
-import { DevTokenService } from './shared/auth/dev-token.service.js';
+import { DevTokenService } from './dev-token/application/dev-token.service.js';
 import { ALL_ROLES } from './shared/auth/roles.js';
-import { APP_CONFIG, type AppConfiguration } from './shared/config/configuration.js';
+import {
+  APP_CONFIG,
+  type AppConfiguration,
+} from './shared/config/configuration.js';
 import { runMigrations } from './shared/database/migrator.js';
 
 async function bootstrap() {

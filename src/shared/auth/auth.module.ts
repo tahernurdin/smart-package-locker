@@ -1,10 +1,10 @@
 import { Global, Module } from '@nestjs/common';
 import { JwtModule, type JwtSignOptions } from '@nestjs/jwt';
 import { APP_CONFIG, type AppConfiguration } from '../config/configuration.js';
-import { DevTokenController } from './dev-token.controller.js';
-import { DevTokenService } from './dev-token.service.js';
-import { JwtAuthGuard } from './jwt-auth.guard.js';
+import { BearerAuthGuard } from './bearer-auth.guard.js';
+import { JwtTokenVerifier } from './jwt-token-verifier.js';
 import { RolesGuard } from './roles.guard.js';
+import { TOKEN_VERIFIER } from './token-verifier.js';
 
 @Global()
 @Module({
@@ -19,8 +19,11 @@ import { RolesGuard } from './roles.guard.js';
       }),
     }),
   ],
-  controllers: [DevTokenController],
-  providers: [JwtAuthGuard, RolesGuard, DevTokenService],
-  exports: [JwtModule, JwtAuthGuard, RolesGuard, DevTokenService],
+  providers: [
+    { provide: TOKEN_VERIFIER, useClass: JwtTokenVerifier },
+    BearerAuthGuard,
+    RolesGuard,
+  ],
+  exports: [JwtModule, TOKEN_VERIFIER, BearerAuthGuard, RolesGuard],
 })
 export class AuthModule {}

@@ -5,19 +5,13 @@ import {
   NotFoundException,
   Post,
 } from '@nestjs/common';
-import { IsIn, IsOptional, IsString } from 'class-validator';
-import { APP_CONFIG, type AppConfiguration } from '../config/configuration.js';
-import { DevTokenService } from './dev-token.service.js';
-import { ALL_ROLES, type Role } from './roles.js';
-
-class DevTokenDto {
-  @IsIn(ALL_ROLES as readonly string[])
-  role!: Role;
-
-  @IsOptional()
-  @IsString()
-  sub?: string;
-}
+import type { Role } from '../../shared/auth/roles.js';
+import {
+  APP_CONFIG,
+  type AppConfiguration,
+} from '../../shared/config/configuration.js';
+import { DevTokenService } from '../application/dev-token.service.js';
+import { DevTokenDto } from './dto/dev-token.dto.js';
 
 /**
  * Dev-only helper to mint a token per role. Every route 404s unless
