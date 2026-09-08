@@ -138,6 +138,45 @@ If no serviceable locker fits, the store call returns `409 no_suitable_locker`. 
 the code is wrong — one answer for all four, so the endpoint is never an oracle for the parcels it
 protects.
 
+## The customer journey
+
+What the walkthrough does with `curl`, a phone app does in four screens. The point of listing it
+this way is that each screen maps to exactly one endpoint, and the two things a customer must never
+be able to name — whose parcels these are, and whose parcel is in that locker — are never in a
+request body.
+
+1. **The parcel arrives.** The agent's drop (`POST /packages/:id/store`) returns the pickup code in
+   plaintext, once, and it is never readable again — only a SHA-256 hash is stored. Getting it to
+   the customer is out of band (SMS, push, email) — the point where that send belongs is marked
+   `TODO(notify)` in `StorePackageService`, at the one moment the code exists in plaintext.
+2. **The customer reaches the station and opens the app.** `GET /packages/mine?status=STORED`. Whose
+   parcels these are comes from the token subject: `ListMyPackagesQueryDto` has no `customerId`
+   field at all, and `forbidNonWhitelisted` turns a request that supplies one into a `400` rather
+   than ignoring it. So there is no shape of request in which a customer enumerates someone else's
+   parcels.
+3. **They tap a parcel.** The row already carries everything the screen needs — `stationName` for
+   the site, `lockerCode` for the door to walk to, `lockerId` for the call to come, plus `size` and
+   `storedAt`. It never carries the pickup code.
+4. **They key in the code.** `POST /packages/retrieve` with `{ lockerId, pickupCode }`. The code
+   alone opens nothing: the parcel must also belong to the token's subject, so a code found on a
+   dropped phone is as useless as a wrong one — both answer `404 retrieval_failed`. Five wrong codes
+   at one door turn that customer away from it for fifteen minutes. On success the fee is settled,
+   the locker frees, and the response reports `opened: true`.
+
+**Two gaps this leaves, both deliberate and both marked in the code.**
+
+`opened: true` is a hardcoded literal. Nothing in this service talks to a latch — there is no
+hardware to talk to — so the point where it would is marked with a `TODO(hardware)` in
+`RetrievePackageService`, after the write that settles the concurrency race, so that only the one
+request that actually claimed the parcel could ever command a door. Closing that TODO means a
+`LockerDoor` port in `lockers/domain/` with an adapter behind it, and a reconciliation path for the
+case the door refuses after the parcel is already recorded as collected.
+
+And a customer who loses the SMS is stuck: because only the hash is stored, no endpoint can re-read
+the code, and there is no re-issue route. Self-service recovery needs a new use case — re-generate
+the code for a `STORED` parcel the caller owns, replacing the stored hash — which is a small
+addition on top of what is here, not a change to it.
+
 ## Endpoints
 
 | Method | Path | Role | Purpose |

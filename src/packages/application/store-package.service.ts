@@ -94,6 +94,19 @@ export class StorePackageService {
 
         if (!reserved) throw new NoSuitableLockerError(pkg.size.code);
 
+        // TODO(notify): tell the customer where their parcel is and hand them
+        // the pickup code — SMS, push, or email:
+        //
+        //   await this.notifier.parcelStored({
+        //     customerId: pkg.customerId, pickupCode,
+        //     lockerCode: reserved.lockerCode, stationName: station.name,
+        //   });
+        //
+        // This is the only moment the code exists in plaintext; from here only
+        // its hash is kept, so a customer who never receives it has no way back
+        // to it. Sending must not fail the drop — the parcel is already in the
+        // locker and the agent has walked away — so a real adapter hands off to
+        // a queue and retries there rather than throwing into this path.
         return {
           packageId: pkg.id,
           lockerId: reserved.lockerId,

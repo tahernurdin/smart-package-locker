@@ -102,6 +102,20 @@ export class RetrievePackageService {
     // nothing was guessed — so it neither counts nor clears.
     await this.attempts.clear(customerId, locker.id);
 
+    // TODO(hardware): release the latch here — the one point where this
+    // service would leave software and touch the locker bank, whether that is
+    // an HTTP call to the station controller, an MQTT publish, or a vendor SDK:
+    //
+    //   await this.door.open({ lockerId: locker.id, lockerCode: locker.code });
+    //
+    // It sits after `saveRetrieval` on purpose: that write settles the race, so
+    // only the one request that actually claimed the parcel can command a door.
+    // The cost of that order is the gap this placeholder leaves open — if the
+    // door failed, the parcel is already RETRIEVED and the fee charged, so a
+    // real adapter needs a reconciliation path (a retry, or a status callback
+    // from the board) rather than just a thrown error. `opened` is hardcoded
+    // below until then; it is a claim about intent, not a confirmation.
+
     return {
       packageId: retrieved.id,
       lockerId: locker.id,
