@@ -443,15 +443,41 @@ service with its success path and each domain error it can raise, and the shared
 everything else trusts — the exception filter's error-to-status mapping, the auth guards, pagination
 and config loading. That is the suite to run while writing code; it finishes in about two seconds.
 
-**E2E specs** are `test/*.e2e-spec.ts`, running controller-to-DB against a real MySQL with no mocks:
-the Level 1–3 flows (L3 fakes the clock to age a package), station and locker management including
-the paged listing, storage-rate publishing and the seeded schedules, both package listings, the
-pickup-attempt limiter against a real Redis, and the health probes. Suites run serially and clear
-their tables between tests, keeping the rows seeded by `migrations/002_seed.sql`.
+**E2E specs** are `test/*.e2e-spec.ts`, and they use **external servers, not test doubles**: a real
+MySQL 8.4 and a real Redis over TCP, with the app booted through `AppModule` and its real DI graph.
+Nothing is mocked or in-memory — no SQLite, no embedded server, no stubbed repository. A test asserts
+that a `SELECT … FOR UPDATE SKIP LOCKED` really does fan two concurrent agents onto different
+lockers, that a generated column really does reject a double-book, and that the limiter's Lua really
+does reset a key's TTL in Redis. None of that is provable against a fake, which is the whole reason these suites
+carry the cost of needing something running.
 
-They run against **their own database** (`locker_test`, set by the checked-in `.env.test`), never
-the one you develop against. `test/global-setup.ts` creates it on first run; each suite applies the
-migrations. To point e2e elsewhere, set `DATABASE_URL` in the shell — it wins over both env files.
+`docker compose up -d mysql redis` is the intended way to provide them (`mysql:8.4` on `3306`,
+`redis:7-alpine` on `6379`); any MySQL 8 and Redis you already run will do. Nothing is silently
+skipped when they are missing, but the two fail differently: without MySQL every suite fails at once
+with `ECONNREFUSED` on `3306`, while without Redis only the limiter suite is affected and it does
+not fail fast — its `beforeAll` sits on the connection until Vitest kills it with `Hook timed out in
+30000ms`. A 30-second pause there means Redis, not a slow test.
+
+They cover the Level 1–3 flows (L3 fakes the clock to age a package), station and locker management
+including the paged listing, storage-rate publishing and the seeded schedules, both package
+listings, the pickup-attempt limiter, and the health probes. Suites run serially — they share one
+database — and clear their tables between tests, keeping the rows seeded by `migrations/002_seed.sql`.
+
+Neither store is the one you develop against:
+
+- **MySQL** — database `locker_test`, never `locker`. `test/global-setup.ts` creates it on first run
+  (the compose service only creates `locker`), and each suite applies the migrations itself. This
+  one *is* destructive: suites truncate their tables between tests, so pointing `DATABASE_URL` at a
+  database you care about will empty it.
+- **Redis** — DB `1`, never DB `0`. Not destructive: the limiter suite never flushes, and keys every
+  test under a fresh random locker id, so it stays safe to run against a Redis someone else is
+  using.
+
+Both come from the checked-in `.env.test`, which holds no secrets and exists so a fresh clone can go
+straight from `docker compose up` to `npm run test:e2e`. `test/env.ts` loads it before `.env` and
+`process.loadEnvFile` keeps the first value it sees, so the precedence is: a real shell variable
+(CI) beats `.env.test`, which beats `.env`. To point the suites at another server, export
+`DATABASE_URL` or `REDIS_URL` in the shell.
 
 Run one file or one case, in either suite:
 
