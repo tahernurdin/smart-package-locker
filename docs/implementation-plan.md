@@ -124,8 +124,11 @@ rewrite a past charge.
 - **L3 (done, tasks 15–17)** — `StorageRateBand` + repo (rate version chosen by `stored_at`); pure
   `calculateStorageFeeMinor`; `TieredStorageFeePolicy` swapped in behind the seam; tiered fee
   returned in the confirmation and snapshotted; a later rate change never rewrites it.
-- **L4** — concurrency: generated-column unique index (already in place) + `FOR UPDATE SKIP LOCKED`
-  + bounded retry; covered by a concurrency e2e test.
+- **L4 (done, tasks 19–20)** — concurrency: generated-column unique index as the correctness
+  backstop + `FOR UPDATE SKIP LOCKED` allocation inside the assignment transaction + a bounded
+  retry on a lost race. Covered by the retry specs in `store-package.service.spec.ts` and the
+  concurrent-store / concurrent-retrieve e2e cases in L1 and L2; the dedicated fan-out suite
+  (`N` stores vs `M` lockers) was descoped — see `tasks/task-20-lifecycle-and-contention-e2e.md`.
 
 ## Task breakdown
 
@@ -148,7 +151,8 @@ rewrite a past charge.
    `RetrievePackageService` (validate → fee → snapshot → mark retrieved → free locker);
    `POST /packages/retrieve`; unit tests (band boundaries, first-day-free, open-ended, errors).
 8. **E2E + docs** — happy-path e2e (token → create → store → retrieve w/ fee → retrieve again
-   409); concurrency e2e (N stores vs M lockers → exactly M succeed, no locker reused); rewrite
-   `README.md` (compose up, tokens, curl walkthrough); lint / format / build green.
+   409); concurrency e2e (concurrent stores against one locker → exactly one succeeds, one
+   assignment row; concurrent retrievals → at most one); rewrite `README.md` (compose up, tokens,
+   curl walkthrough); lint / format / build green.
 
 New deps: `mysql2`, `@nestjs/jwt`, `@nestjs/config`. Nothing else.

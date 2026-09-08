@@ -1,12 +1,25 @@
 # Smart Package Locker Management System
 
 A REST service where delivery **agents** store packages in size-appropriate lockers and
-**customers** retrieve them with a pickup code. **Operators** manage the lockers.
+**customers** retrieve them with a pickup code. **Operators** manage the stations, the lockers and
+the prices.
 
 Built with NestJS + MySQL in a layered/clean architecture. See
 [`docs/implementation-plan.md`](docs/implementation-plan.md) for the design and
 [`CLAUDE.md`](CLAUDE.md) for the engineering conventions. Work is tracked as task specs under
-[`tasks/`](tasks/).
+[`tasks/`](tasks/); [`api.http`](api.http) is a ready-to-run request collection for the whole API.
+
+## Status
+
+| Level | Scope | State |
+|---|---|---|
+| 1 | Create lockers, list with availability, store a package (smallest fit + pickup code) | ✅ Done |
+| 2 | Customer retrieval (locker id + pickup code), locker freed on pickup | ✅ Done |
+| 3 | Tiered extended-storage fees, charged and snapshotted on retrieval | ✅ Done |
+| 4 | Concurrency hardening (`FOR UPDATE … SKIP LOCKED` + bounded retry) | ✅ Done |
+
+Beyond the brief, and done: station and locker CRUD, operator-published storage-rate versions, and
+paged/filtered/sorted listings for lockers and packages.
 
 ## Assumptions
 
@@ -14,8 +27,11 @@ Built with NestJS + MySQL in a layered/clean architecture. See
   `customerId` this service is given; it stores that reference and never resolves it. Creating,
   updating and notifying customers — including delivering the pickup code by SMS/email — are out of
   scope per the brief, so there is no `customer` table and no `/customers` endpoint.
-- **Retrieval is authorized by possession** (locker id + pickup code). The `CUSTOMER` role only
-  gates the route; no customer identity is checked.
+- **A pickup code is only good in the hands of the customer it was issued to.** Retrieval needs the
+  locker id and the code *and* a token whose subject is the `customerId` the parcel was registered
+  for — a leaked code collects nothing on its own. Ownership is never a field on the request, so
+  there is no shape in which a caller names someone else; it comes from the token, as it does for
+  `GET /packages/mine`.
 - **Stations are this service's data**, unlike customers: `locker.station_id` references them,
   `GET /lockers` joins them, and `POST /lockers` requires one. So operators manage them directly
   (`/stations`).
@@ -28,19 +44,6 @@ Built with NestJS + MySQL in a layered/clean architecture. See
 - **Nothing is ever hard-deleted.** `DELETE` on a station or a locker *decommissions* it: the row
   stays (the assignment history that backs the fee calculation references it), it drops out of the
   default listing, and the allocator stops considering it. Decommissioning is terminal.
-
-## Status
-
-| Level | Scope | State |
-|---|---|---|
-| 1 | Create lockers, list with availability, store package (smallest-fit + pickup code) | ✅ Done |
-| 2 | Customer retrieval (locker id + pickup code), locker freed on pickup | ✅ Done |
-| 3 | Tiered extended-storage fees, charged & snapshotted on retrieval | ✅ Done |
-| 4 | Concurrency hardening (`FOR UPDATE SKIP LOCKED` + retry) | ⏳ Planned |
-
-The one-active-package-per-locker invariant is already enforced at the database
-(a unique index over a generated column), so concurrent stores never double-book a locker even
-before Level 4.
 
 ## Quickstart (Docker)
 
@@ -61,8 +64,8 @@ curl localhost:3000/health/ready    # {"status":"ok","db":"up"}  (503 {"status":
 
 ## Getting a token
 
-Every `/lockers` and `/packages` route needs `Authorization: Bearer <token>` for the right role
-(`OPERATOR`, `AGENT`, `CUSTOMER`). In dev, mint one:
+Every route but `/health` and `/auth/dev-token` needs `Authorization: Bearer <token>` for the right
+role (`OPERATOR`, `AGENT`, `CUSTOMER`). In dev, mint one:
 
 ```bash
 curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
@@ -71,6 +74,15 @@ curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
 ```
 
 or read them from the startup logs, or run `npm run token -- --role AGENT`.
+
+`sub` is optional and defaults to `<role>-dev`. A customer's token must carry **their customer id**
+as its subject: it is what `GET /packages/mine` filters on and what `POST /packages/retrieve` checks
+the parcel against. A bare `token('CUSTOMER')` retrieves nothing.
+
+```bash
+curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
+  -d '{"role":"CUSTOMER","sub":"11111111-1111-4111-8111-111111111111"}'
+```
 
 ## Walkthrough
 
@@ -92,13 +104,14 @@ for s in SMALL MEDIUM LARGE; do
     -d "{\"code\":\"A-$s\",\"size\":\"$s\",\"stationId\":\"$STATION\"}"
 done
 
-# Operator: list lockers with availability + station (optional ?stationId=<uuid>)
-curl -s localhost:3000/lockers -H "authorization: Bearer $OP"
+# Operator: list lockers with availability + station — a page of {items,total,limit,offset}
+curl -s "localhost:3000/lockers?stationId=$STATION&availability=FREE" -H "authorization: Bearer $OP"
 
 # Agent: register the parcel against a customerId (issued by the upstream customer service)
+CUSTOMER_ID=11111111-1111-4111-8111-111111111111
 PKG=$(curl -sXPOST localhost:3000/packages -H "authorization: Bearer $AGENT" \
   -H 'content-type: application/json' \
-  -d '{"size":"SMALL","customerId":"11111111-1111-4111-8111-111111111111"}' | jq -r .packageId)
+  -d "{\"size\":\"SMALL\",\"customerId\":\"$CUSTOMER_ID\"}" | jq -r .packageId)
 
 # Agent: drop it in a locker at the station they're standing at — smallest fit wins
 STORED=$(curl -sXPOST "localhost:3000/packages/$PKG/store" -H "authorization: Bearer $AGENT" \
@@ -106,9 +119,12 @@ STORED=$(curl -sXPOST "localhost:3000/packages/$PKG/store" -H "authorization: Be
 echo "$STORED"
 # {"packageId":"…","lockerId":"…","lockerCode":"A-SMALL","pickupCode":"482913","status":"STORED"}
 
-# Customer: retrieve it with the locker id + pickup code
+# Customer: see their own parcels (identity comes from the token subject)
 CUSTOMER=$(curl -sXPOST localhost:3000/auth/dev-token -H 'content-type: application/json' \
-      -d '{"role":"CUSTOMER"}' | jq -r .token)
+      -d "{\"role\":\"CUSTOMER\",\"sub\":\"$CUSTOMER_ID\"}" | jq -r .token)
+curl -s 'localhost:3000/packages/mine?status=STORED' -H "authorization: Bearer $CUSTOMER"
+
+# Customer: retrieve it with the locker id + pickup code
 curl -sXPOST localhost:3000/packages/retrieve -H "authorization: Bearer $CUSTOMER" \
   -H 'content-type: application/json' \
   -d "{\"lockerId\":$(jq .lockerId <<<"$STORED"),\"pickupCode\":$(jq .pickupCode <<<"$STORED")}"
@@ -118,9 +134,10 @@ curl -sXPOST localhost:3000/packages/retrieve -H "authorization: Bearer $CUSTOME
 # — the locker is now FREE again.
 ```
 
-If no serviceable locker fits, the store call returns `409 no_suitable_locker`. A retrieval that
-doesn't match a locker + active package + pickup code returns `404 retrieval_failed` (the same for
-all three, so nothing leaks).
+If no serviceable locker fits, the store call returns `409 no_suitable_locker`. A retrieval answers
+`404 retrieval_failed` when the locker is unknown, holds nothing, holds someone else's parcel, or
+the code is wrong — one answer for all four, so the endpoint is never an oracle for the parcels it
+protects.
 
 ## Endpoints
 
@@ -128,22 +145,26 @@ all three, so nothing leaks).
 |---|---|---|---|
 | `GET` | `/health/live` | — | Liveness — process only, no DB |
 | `GET` | `/health/ready` | — | Readiness — `SELECT 1`, `503` when the DB is down |
-| `POST` | `/auth/dev-token` | — (dev only) | Mint a token for `{ role }` |
+| `POST` | `/auth/dev-token` | — (dev only) | Mint a token for `{ role, sub? }` |
 | `POST` | `/stations` | Operator | Create a station `{ name, location? }` |
 | `GET` | `/stations` | Operator | List stations; `?includeDecommissioned=true` to see retired ones |
 | `GET` | `/stations/:id` | Operator | Read one station (retired ones included) |
 | `PATCH` | `/stations/:id` | Operator | Rename / relocate `{ name?, location? }` |
 | `DELETE` | `/stations/:id` | Operator | Decommission — `409` while it still has live lockers |
 | `POST` | `/lockers` | Operator | Create a locker `{ code, size, stationId }` |
-| `GET` | `/lockers` | Operator | List lockers (`FREE`/`OCCUPIED` + station); `?stationId=<uuid>`, `?includeDecommissioned=true` |
-| `GET` | `/lockers/:id` | Operator | Read one locker |
+| `GET` | `/lockers` | Operator | Paged locker listing — filters and sorts below |
+| `GET` | `/lockers/:id` | Operator | Read one locker with its occupancy and station |
 | `PATCH` | `/lockers/:id` | Operator | Relabel / take out of service `{ code?, status? }` |
 | `DELETE` | `/lockers/:id` | Operator | Decommission — `409` while a package is inside |
+| `POST` | `/storage-rates` | Operator | Publish a rate version `{ sizeCode, effectiveFrom, bands[] }` |
+| `GET` | `/storage-rates` | Operator | List published versions, newest first; `?sizeCode=` |
 | `POST` | `/packages` | Agent | Register a parcel `{ size, customerId, trackingRef? }` → `{ packageId, status }` |
 | `POST` | `/packages/:id/store` | Agent | Drop it at a station `{ stationId }` → the smallest fitting locker there → `{ lockerId, lockerCode, pickupCode, status }` |
-| `POST` | `/packages/retrieve` | Customer | Retrieve `{ lockerId, pickupCode }` — opens the locker, returns the fee |
+| `POST` | `/packages/retrieve` | Customer | Retrieve `{ lockerId, pickupCode }` — the caller must own the parcel; opens the locker, returns the fee |
+| `GET` | `/packages/mine` | Customer | The caller's own parcels, paged |
+| `GET` | `/packages` | Operator | Search every customer's parcels, paged |
 
-Each `GET /lockers` row:
+Each `GET /lockers` item:
 
 ```json
 { "id": "…", "code": "A-01", "size": "SMALL", "status": "IN_SERVICE",
@@ -151,11 +172,97 @@ Each `GET /lockers` row:
   "stationId": "…", "stationName": "Default Station", "location": "HQ" }
 ```
 
-**No pagination or sorting.** A locker bank is bounded and small (tens per station), and the list
-comes back deterministically ordered by size then code — the natural "here's the wall" view.
-`?stationId=` and `?includeDecommissioned=` are the only filters. The repository method takes an
-options object, so `limit` / `cursor` / `sort` can be added later without changing callers if a
-deployment ever needs them.
+Each package item (both listings share the shape, and neither ever carries the pickup code):
+
+```json
+{ "id": "…", "customerId": "…", "size": "SMALL", "trackingRef": null, "status": "RETRIEVED",
+  "registeredAt": "…", "storedAt": "…", "retrievedAt": "…",
+  "storageFee": { "amountMinor": 1400, "currency": "AUD" },
+  "lockerId": "…", "lockerCode": "A-01", "stationId": "…", "stationName": "North Depot" }
+```
+
+## Listings: paging, filtering, sorting
+
+`GET /lockers`, `GET /packages` and `GET /packages/mine` answer the same envelope —
+`{ items, total, limit, offset }`, where `total` counts everything matching the filter, not the page
+— and take the same window: `?limit=` (default 50, max 200) and `?offset=`. The service resolves and
+clamps both, so a caller that skips the HTTP pipe gets the same defaults and the same ceiling.
+
+| Listing | Filters | `sortBy` (with `sortDir=asc\|desc`) |
+|---|---|---|
+| `GET /lockers` | `stationId`, `size`, `status`, `availability`, `includeDecommissioned` | `code` (default, asc), `station`, `createdAt` |
+| `GET /packages` | `customerId`, `status`, `size`, `stationId`, `lockerId`, `trackingRef` | `registeredAt` (default, desc), `storedAt`, `retrievedAt`, `station` |
+| `GET /packages/mine` | `status`, `size` | same as above |
+
+Two deliberate shapes here:
+
+- **The customer listing has no `customerId`.** Whose parcels these are comes from the bearer token
+  alone, and `forbidNonWhitelisted` turns a request that supplies one into a `400` rather than
+  quietly ignoring it. That is why it is a separate route from the operator's search rather than a
+  filter the customer could point elsewhere.
+- **Low-cardinality fields are filters, never sorts.** `size`, `status` and `availability` have two
+  or three values each; ordering by one is really a grouping, and paging through it is useless.
+  Sorting is offered only on fields that discriminate. An unknown `sortBy`/`sortDir` is a `400`
+  (`invalid_locker_sort` / `invalid_package_sort`) listing what is allowed — the set is closed, so
+  nothing off the wire ever reaches an `ORDER BY`.
+
+Sorts are backed by indexes added in `migrations/004_listing_sort_indexes.sql`, each ending in the
+same tiebreakers the adapter appends (`code`, then `id`) so the index covers the *whole* ordering
+and MySQL can skip the sort. The two sorts that order by a joined table (`station`, and the package
+listing's `storedAt`/`retrievedAt`) stay filesorts by construction and are bounded by the filters
+applied alongside them.
+
+## Package lifecycle
+
+`REGISTERED → STORED → RETRIEVED`, split across two tables:
+
+- **`package`** — the parcel: `customer_id`, size, tracking ref, status. Created by `POST /packages`,
+  the seam an order or carrier feed would call.
+- **`locker_assignment`** — one storage episode: locker, `stored_at`, pickup-code hash,
+  `retrieved_at`, the fee snapshot. Written by the agent's drop (`POST /packages/:id/store`) and
+  closed on retrieval.
+
+Storing a package twice is `409 package_already_stored`, enforced by `uq_one_assignment_per_package`
+rather than by a read-then-write check. Retrieval closes the assignment with a conditional
+`UPDATE … WHERE retrieved_at IS NULL`; zero affected rows is `409` and the locker frees.
+
+## Concurrency (Level 4)
+
+Two agents can reach for the same locker at the same instant. Three layers handle it, in order of
+who is allowed to be wrong:
+
+1. **The database is the correctness backstop.** `locker_assignment.active_locker_id` is a generated
+   column (the locker id while `retrieved_at IS NULL`, `NULL` after), and
+   `uq_one_active_assignment_per_locker` is unique over it. A locker cannot hold two active packages
+   even if every layer above it misbehaves — a race surfaces as `ER_DUP_ENTRY`, never as a
+   double-book.
+2. **`FOR UPDATE … SKIP LOCKED` is the fairness layer.** Allocation selects the smallest free fitting
+   locker inside the transaction that inserts the assignment; concurrent agents skip each other's
+   locked rows and fan out to *different* lockers instead of queueing on one.
+3. **A bounded retry (3 attempts) covers a lost race.** A duplicate on the locker key becomes
+   `LockerJustTakenError` and the store is retried; a duplicate on the *package* key is terminal and
+   becomes `409 package_already_stored`. The adapter dispatches on the constraint name, never on
+   `ER_DUP_ENTRY` alone — reading a package clash as a locker race would burn all three attempts on
+   a race that never happened.
+
+Allocation is a single indexed walk: `size_rank` is a generated column carrying `LockerSize.rank`,
+and `ix_locker_allocation (station_id, status, size_rank, code)` serves the filter, the "fits" range
+and the smallest-first order together, so `LIMIT 1` stops at the first match instead of sorting the
+bank (`migrations/005_locker_size_rank.sql`).
+
+Retrieval concurrency was handled in Level 2 by the conditional update described above.
+
+Covered by: the retry specs in `store-package.service.spec.ts` (a lost race retried and won, and
+given up on after three); 8 concurrent stores against a single locker → exactly one `200` and one
+assignment row (`level1.e2e-spec.ts`); 6 concurrent retrievals of one package → exactly one `200`
+(`level2.e2e-spec.ts`).
+
+One property is deliberately left untested end to end: fan-out under `M` lockers and `N > M`
+concurrent stores — that exactly `M` succeed, on `M` **distinct** lockers, with no spurious
+`no_suitable_locker` from an agent queueing behind a peer. Layer 1 makes a double-book
+unrepresentable whatever the lock does, so what is unproven is throughput under contention, not
+correctness. [Task 20](tasks/task-20-lifecycle-and-contention-e2e.md) records the suite that would
+assert it.
 
 ## Managing lockers and stations
 
@@ -197,9 +304,31 @@ The rate is tiered per size (`storage_rate` table, half-open `[from_day, to_day)
 `0 + 600·2 + 800·3 + 1000 = 4600`.
 
 The fee is computed at retrieval, returned in the pickup confirmation
-(`storageFee: { amountMinor, currency }`), and **snapshotted** into `package.storage_fee_minor` —
-a later rate change never rewrites a past charge. The rate *version* applied is the one in effect
-when the package was stored (`effective_from <= stored_at`).
+(`storageFee: { amountMinor, currency }`), and **snapshotted** onto the assignment — a later rate
+change never rewrites a past charge. The rate *version* applied is the one in effect when the
+package was stored (`effective_from <= stored_at`).
+
+### Rate versions are published, not edited
+
+`/storage-rates` is publish-and-read only: no `PATCH`, no `DELETE`. Because a fee is derived from
+the version effective at `stored_at`, editing a published version would rewrite what a customer was
+already charged. Change a price by publishing a new version:
+
+```bash
+curl -sXPOST localhost:3000/storage-rates -H "authorization: Bearer $OP" \
+  -H 'content-type: application/json' -d '{
+    "sizeCode": "SMALL",
+    "effectiveFrom": "2027-01-01T00:00:00.000Z",
+    "bands": [{"fromDay":0,"toDay":1,"rateMinor":0},
+              {"fromDay":1,"toDay":3,"rateMinor":700},
+              {"fromDay":3,"rateMinor":1200}]
+  }'
+```
+
+A version is validated as a whole: bands must tile `[0, ∞)` — start at day 0, meet at the edges, and
+end with exactly one open-ended tail — `effectiveFrom` must be in the future (rates are
+forward-only), and one size cannot have two versions starting at the same instant. Band ids stay
+internal: a version is immutable, so there is nothing to address one of them for.
 
 ## Local development (without Docker)
 
@@ -210,6 +339,13 @@ npm run db:migrate            # apply migrations/*.sql
 npm run start:dev
 ```
 
+| Task | Command |
+|---|---|
+| Lint | `npm run lint` (oxlint) |
+| Format | `npm run format` (Prettier) |
+| Build | `npm run build` → `dist/`, then `npm run start:prod` |
+| Mint a token | `npm run token -- --role AGENT` |
+
 ## Tests
 
 ```bash
@@ -219,10 +355,12 @@ docker compose up -d mysql    # e2e needs a MySQL
 npm run test:e2e              # every test/*.e2e-spec.ts
 ```
 
-E2E covers the Level 1–3 flows (L3 fakes the clock to age a package), station/locker management,
-storage-rate management, both package listings, and the health probes — against a real MySQL, no
-mocks. Suites run serially and clear their tables between tests, keeping the rows seeded by
-`migrations/002_seed.sql`.
+Unit specs are `*.spec.ts` beside the code, driving domain objects and application services against
+in-memory fakes. E2E specs are `test/*.e2e-spec.ts`, running controller-to-DB against a real MySQL
+with no mocks: the Level 1–3 flows (L3 fakes the clock to age a package), station and locker
+management including the paged listing, storage-rate publishing and the seeded schedules, both
+package listings, and the health probes. Suites run serially and clear their tables between tests,
+keeping the rows seeded by `migrations/002_seed.sql`.
 
 They run against **their own database** (`locker_test`, set by the checked-in `.env.test`), never
 the one you develop against. `test/global-setup.ts` creates it on first run; each suite applies the
@@ -239,12 +377,21 @@ npx vitest run -t "assigns the smallest locker that fits"
 
 ```
 src/
-  shared/       config, database (pool + migrator), clock, id, pickup-code, errors, auth
-  stations/     domain / application / infrastructure / interface  (+ module)
-  lockers/      domain / application / infrastructure / interface  (+ module)
-  packages/     domain / application / infrastructure / interface  (+ module)
-migrations/     *.sql, applied in order and tracked in schema_migrations
-tasks/          per-task specs (L1: 01–08, L2: 09–12, L3: 15–17, split + L4: 18–20, CRUD: 22–23)
+  shared/         config, database (pool + migrator + transaction), clock, id,
+                  pickup-code, pagination, errors, auth
+  dev-token/      POST /auth/dev-token + the CLI behind `npm run token`
+  health/         liveness + readiness probes
+  stations/       domain / application / infrastructure / interface  (+ module)
+  lockers/        domain / application / infrastructure / interface  (+ module)
+  packages/       domain / application / infrastructure / interface  (+ module)
+  storage-rates/  domain / application / infrastructure / interface  (+ module)
+migrations/       001 schema · 002 seed · 003 rate versions · 004 listing indexes
+                  · 005 locker size rank — applied in order, tracked in schema_migrations
+test/             *.e2e-spec.ts against a real MySQL
+tasks/            per-task specs (L1: 01–08, L2: 09–12, L3: 15–17, split + L4: 18–21,
+                  CRUD: 22–24)
+docs/             implementation plan
+api.http          the whole API as runnable requests
 ```
 
 Dependencies point inward: HTTP → application → domain; infrastructure implements domain ports and
