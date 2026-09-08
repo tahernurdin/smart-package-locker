@@ -428,13 +428,30 @@ describe('Locker & station management (e2e)', () => {
         .get('/lockers')
         .set('authorization', `Bearer ${op}`)
         .expect(200);
-      expect(listed.body).toEqual([]);
+      expect(listed.body).toEqual({
+        items: [],
+        total: 0,
+        limit: 50,
+        offset: 0,
+      });
 
       const withRetired = await http()
         .get('/lockers?includeDecommissioned=true')
         .set('authorization', `Bearer ${op}`)
         .expect(200);
-      expect(withRetired.body.map((l: { id: string }) => l.id)).toEqual([id]);
+      expect(withRetired.body.items.map((l: { id: string }) => l.id)).toEqual([
+        id,
+      ]);
+
+      // Asking for the retired status outright shows them too — the default
+      // hide would otherwise make ?status=DECOMMISSIONED always empty.
+      const byStatus = await http()
+        .get('/lockers?status=DECOMMISSIONED')
+        .set('authorization', `Bearer ${op}`)
+        .expect(200);
+      expect(byStatus.body.items.map((l: { id: string }) => l.id)).toEqual([
+        id,
+      ]);
 
       // Terminal: no edits, no second retirement.
       await http()
@@ -513,6 +530,133 @@ describe('Locker & station management (e2e)', () => {
         .set('authorization', `Bearer ${agent}`)
         .expect(409);
       expect(stored.body.code).toBe('no_suitable_locker');
+    });
+
+    describe('listing', () => {
+      /** Codes picked so size order and code order disagree. */
+      async function seedBank(op: string): Promise<void> {
+        await createLocker(op, 'C-01', 'LARGE').expect(201);
+        await createLocker(op, 'A-02', 'MEDIUM').expect(201);
+        await createLocker(op, 'B-03', 'SMALL').expect(201);
+        await createLocker(op, 'A-01', 'SMALL').expect(201);
+        await createLocker(op, 'D-04', 'MEDIUM').expect(201);
+      }
+
+      const list = (op: string, query = '') =>
+        http().get(`/lockers${query}`).set('authorization', `Bearer ${op}`);
+
+      const codes = (body: { items: { code: string }[] }) =>
+        body.items.map((l) => l.code);
+
+      it('answers one default-sized page, smallest size first', async () => {
+        const op = await token('OPERATOR');
+        await seedBank(op);
+
+        const res = await list(op).expect(200);
+
+        expect(res.body).toMatchObject({ total: 5, limit: 50, offset: 0 });
+        expect(codes(res.body)).toEqual([
+          'A-01',
+          'B-03',
+          'A-02',
+          'D-04',
+          'C-01',
+        ]);
+      });
+
+      it('walks the bank a page at a time, without repeating or dropping one', async () => {
+        const op = await token('OPERATOR');
+        await seedBank(op);
+
+        const seen: string[] = [];
+        for (const offset of [0, 2, 4]) {
+          const page = await list(op, `?limit=2&offset=${offset}`).expect(200);
+          expect(page.body).toMatchObject({ total: 5, limit: 2, offset });
+          seen.push(...page.body.items.map((l: { id: string }) => l.id));
+        }
+        expect(seen).toHaveLength(5);
+        expect(new Set(seen).size).toBe(5);
+
+        // Past the end is an empty page, not an error.
+        const beyond = await list(op, '?limit=2&offset=99').expect(200);
+        expect(beyond.body).toMatchObject({ items: [], total: 5, offset: 99 });
+      });
+
+      it('sorts by a chosen field and direction', async () => {
+        const op = await token('OPERATOR');
+        await seedBank(op);
+
+        const byCode = await list(op, '?sortBy=code').expect(200);
+        expect(codes(byCode.body)).toEqual([
+          'A-01',
+          'A-02',
+          'B-03',
+          'C-01',
+          'D-04',
+        ]);
+
+        const reversed = await list(op, '?sortBy=code&sortDir=desc').expect(
+          200,
+        );
+        expect(codes(reversed.body)).toEqual([
+          'D-04',
+          'C-01',
+          'B-03',
+          'A-02',
+          'A-01',
+        ]);
+      });
+
+      it('filters by size, and the total counts matches, not the page', async () => {
+        const op = await token('OPERATOR');
+        await seedBank(op);
+
+        const small = await list(op, '?size=SMALL').expect(200);
+        expect(small.body.total).toBe(2);
+        expect(codes(small.body)).toEqual(['A-01', 'B-03']);
+
+        const firstOfTwo = await list(op, '?size=SMALL&limit=1').expect(200);
+        expect(firstOfTwo.body).toMatchObject({ total: 2, limit: 1 });
+        expect(codes(firstOfTwo.body)).toEqual(['A-01']);
+      });
+
+      it('filters by whether the locker holds a package', async () => {
+        const op = await token('OPERATOR');
+        const agent = await token('AGENT');
+        await seedBank(op);
+
+        const registered = await http()
+          .post('/packages')
+          .set('authorization', `Bearer ${agent}`)
+          .send({ size: 'SMALL', customerId: CUSTOMER_ID })
+          .expect(201);
+        await http()
+          .post(`/packages/${registered.body.packageId}/store`)
+          .set('authorization', `Bearer ${agent}`)
+          .send({ stationId: SEEDED_STATION_ID })
+          .expect(200);
+
+        const occupied = await list(op, '?availability=OCCUPIED').expect(200);
+        expect(occupied.body.total).toBe(1);
+        expect(occupied.body.items[0].activePackageId).toBe(
+          registered.body.packageId,
+        );
+
+        const free = await list(op, '?availability=FREE').expect(200);
+        expect(free.body.total).toBe(4);
+      });
+
+      it('rejects a window or a sort it does not offer', async () => {
+        const op = await token('OPERATOR');
+
+        await list(op, '?limit=0').expect(400);
+        await list(op, '?limit=500').expect(400);
+        await list(op, '?limit=abc').expect(400);
+        await list(op, '?offset=-1').expect(400);
+        await list(op, '?sortBy=stationName').expect(400);
+        await list(op, '?sortDir=sideways').expect(400);
+        await list(op, '?size=HUGE').expect(400);
+      });
     });
   });
 });

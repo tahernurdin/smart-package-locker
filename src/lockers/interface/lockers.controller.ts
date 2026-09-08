@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import { Auth } from '../../shared/auth/auth.decorator.js';
 import { Role } from '../../shared/auth/roles.js';
+import type { Page } from '../../shared/pagination/page.js';
 import { CreateLockerService } from '../application/create-locker.service.js';
 import { DecommissionLockerService } from '../application/decommission-locker.service.js';
 import { GetLockerService } from '../application/get-locker.service.js';
@@ -39,8 +40,9 @@ export class LockersController {
     return this.createLocker.createLocker(dto);
   }
 
+  /** Paged: `{ items, total, limit, offset }`, filtered and sorted per the query. */
   @Get()
-  list(@Query() query: ListLockersQueryDto): Promise<LockerView[]> {
+  list(@Query() query: ListLockersQueryDto): Promise<Page<LockerView>> {
     return this.listLockers.listLockers(query);
   }
 

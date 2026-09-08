@@ -112,7 +112,7 @@ describe('Level 2 — retrieval (e2e)', () => {
       .set('authorization', `Bearer ${op}`)
       .expect(200);
     expect(
-      lockers.body.find((l: { code: string }) => l.code === 'A-01'),
+      lockers.body.items.find((l: { code: string }) => l.code === 'A-01'),
     ).toMatchObject({ availability: 'FREE', activePackageId: null });
 
     // the freed locker takes a new package

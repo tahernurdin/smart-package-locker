@@ -95,10 +95,11 @@ describe('Level 1 (e2e)', () => {
       .get('/lockers')
       .set('authorization', `Bearer ${op}`)
       .expect(200);
+    expect(listed.body).toMatchObject({ total: 3, limit: 50, offset: 0 });
     expect(
-      listed.body.map((l: { availability: string }) => l.availability),
+      listed.body.items.map((l: { availability: string }) => l.availability),
     ).toEqual(['FREE', 'FREE', 'FREE']);
-    expect(listed.body[0]).toMatchObject({
+    expect(listed.body.items[0]).toMatchObject({
       stationId: SEEDED_STATION_ID,
       stationName: 'Default Station',
       location: 'HQ',
@@ -120,7 +121,7 @@ describe('Level 1 (e2e)', () => {
       .set('authorization', `Bearer ${op}`)
       .expect(200);
     expect(
-      afterFirst.body.find((l: { code: string }) => l.code === 'A-S'),
+      afterFirst.body.items.find((l: { code: string }) => l.code === 'A-S'),
     ).toMatchObject({ availability: 'OCCUPIED', activePackageId: p1 });
 
     // SMALL again, SMALL locker taken -> MEDIUM
@@ -198,13 +199,19 @@ describe('Level 1 (e2e)', () => {
       .get(`/lockers?stationId=${SEEDED_STATION_ID}`)
       .set('authorization', `Bearer ${op}`)
       .expect(200);
-    expect(atDefault.body).toHaveLength(1);
+    expect(atDefault.body.items).toHaveLength(1);
+    expect(atDefault.body.total).toBe(1);
 
     const elsewhere = await http()
       .get('/lockers?stationId=0a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d')
       .set('authorization', `Bearer ${op}`)
       .expect(200);
-    expect(elsewhere.body).toEqual([]);
+    expect(elsewhere.body).toEqual({
+      items: [],
+      total: 0,
+      limit: 50,
+      offset: 0,
+    });
 
     await http()
       .get('/lockers?stationId=not-a-uuid')

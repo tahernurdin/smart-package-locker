@@ -16,6 +16,17 @@ export class InvalidLockerSizeError extends ValidationDomainError {
   }
 }
 
+/** An unknown `sortBy`/`sortDir` on the locker listing. */
+export class InvalidLockerSortError extends ValidationDomainError {
+  constructor(field: string, value: string, allowed: readonly string[]) {
+    super(
+      'invalid_locker_sort',
+      `Unknown ${field}: ${value}. Expected one of ${allowed.join(', ')}`,
+      { field, value, allowed: [...allowed] },
+    );
+  }
+}
+
 export class LockerCodeTakenError extends ConflictDomainError {
   constructor(stationId: string, code: string) {
     super(

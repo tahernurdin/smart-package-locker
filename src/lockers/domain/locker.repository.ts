@@ -1,3 +1,8 @@
+import type { PageRequest } from '../../shared/pagination/page.js';
+import type { LockerAvailability } from './locker-availability.js';
+import type { LockerSize } from './locker-size.js';
+import type { LockerSort } from './locker-sort.js';
+import type { LockerStatus } from './locker-status.js';
 import type { Locker } from './locker.entity.js';
 
 export const LOCKER_REPOSITORY = Symbol('LOCKER_REPOSITORY');
@@ -17,8 +22,27 @@ export interface LockerOccupancy {
 
 export interface ListLockersFilter {
   stationId?: string;
-  /** Retired lockers are hidden unless asked for. */
+  size?: LockerSize;
+  status?: LockerStatus;
+  availability?: LockerAvailability;
+  /**
+   * Retired lockers are hidden unless asked for — either by this flag or by
+   * naming `status: 'DECOMMISSIONED'`, which would otherwise match nothing.
+   */
   includeDecommissioned?: boolean;
+}
+
+/** Everything `GET /lockers` needs: which rows, in what order, which window. */
+export interface ListLockersQuery {
+  filter: ListLockersFilter;
+  sort: LockerSort;
+  page: PageRequest;
+}
+
+export interface LockerOccupancyPage {
+  rows: LockerOccupancy[];
+  /** Rows matching the filter, ignoring the window. */
+  total: number;
 }
 
 export interface LockerRepository {
@@ -34,9 +58,9 @@ export interface LockerRepository {
   existsByStationAndCode(stationId: string, code: string): Promise<boolean>;
 
   /**
-   * Lockers with their derived occupancy and station, ordered by size then code.
-   * The filter is an options object so paging/sorting can be added later without
-   * changing callers (the locker bank is small enough not to need it today).
+   * One page of lockers with their derived occupancy and station, plus the
+   * total behind it. The window is required, not optional: an unfiltered bank
+   * spans every station, so there is no caller allowed an unbounded scan.
    */
-  listWithOccupancy(filter?: ListLockersFilter): Promise<LockerOccupancy[]>;
+  listWithOccupancy(query: ListLockersQuery): Promise<LockerOccupancyPage>;
 }

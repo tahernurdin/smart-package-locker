@@ -11,6 +11,7 @@ import type { LockerSizeCode } from '../domain/locker-size.js';
 import type { Locker } from '../domain/locker.entity.js';
 import type {
   LockerOccupancy,
+  LockerOccupancyPage,
   LockerRepository,
 } from '../domain/locker.repository.js';
 import { CreateLockerService } from './create-locker.service.js';
@@ -51,8 +52,9 @@ class FakeLockerRepository implements LockerRepository {
     return this.keys.has(`${stationId}:${code}`);
   }
 
-  async listWithOccupancy(): Promise<LockerOccupancy[]> {
-    return this.saved.map((locker) => this.occupancy(locker));
+  async listWithOccupancy(): Promise<LockerOccupancyPage> {
+    const rows = this.saved.map((locker) => this.occupancy(locker));
+    return { rows, total: rows.length };
   }
 
   private occupancy(locker: Locker): LockerOccupancy {

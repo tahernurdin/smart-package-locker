@@ -1,10 +1,20 @@
+import {
+  DEFAULT_PAGE_LIMIT,
+  MAX_PAGE_LIMIT,
+} from '../../shared/pagination/page.js';
+import {
+  InvalidLockerSizeError,
+  InvalidLockerSortError,
+} from '../domain/errors.js';
 import { Locker } from '../domain/locker.entity.js';
 import { LockerSize } from '../domain/locker-size.js';
 import type {
-  ListLockersFilter,
+  ListLockersQuery,
   LockerOccupancy,
+  LockerOccupancyPage,
   LockerRepository,
 } from '../domain/locker.repository.js';
+import type { ListLockersQueryDto } from '../interface/dto/list-lockers-query.dto.js';
 import { ListLockersService } from './list-lockers.service.js';
 
 function locker(code: string, size: 'SMALL' | 'MEDIUM' | 'LARGE'): Locker {
@@ -19,18 +29,32 @@ function locker(code: string, size: 'SMALL' | 'MEDIUM' | 'LARGE'): Locker {
 
 const station = { id: 'station-1', name: 'HQ Bank', location: 'Lobby' };
 
+/** Records the query it was asked, answering with `page`. */
+function spyRepo(page: LockerOccupancyPage = { rows: [], total: 0 }): {
+  repo: LockerRepository;
+  received: () => ListLockersQuery | undefined;
+} {
+  let seen: ListLockersQuery | undefined;
+  const repo = {
+    listWithOccupancy: async (query: ListLockersQuery) => {
+      seen = query;
+      return page;
+    },
+  } as unknown as LockerRepository;
+  return { repo, received: () => seen };
+}
+
 describe('ListLockersService', () => {
   it('derives FREE / OCCUPIED and flattens the station onto each row', async () => {
-    const repo = {
-      listWithOccupancy: async (): Promise<LockerOccupancy[]> => [
-        { locker: locker('A-01', 'SMALL'), activePackageId: 'pkg-7', station },
-        { locker: locker('B-01', 'LARGE'), activePackageId: null, station },
-      ],
-    } as unknown as LockerRepository;
+    const rows: LockerOccupancy[] = [
+      { locker: locker('A-01', 'SMALL'), activePackageId: 'pkg-7', station },
+      { locker: locker('B-01', 'LARGE'), activePackageId: null, station },
+    ];
+    const { repo } = spyRepo({ rows, total: 2 });
 
-    const views = await new ListLockersService(repo).listLockers();
+    const page = await new ListLockersService(repo).listLockers();
 
-    expect(views).toEqual([
+    expect(page.items).toEqual([
       {
         id: 'id-A-01',
         code: 'A-01',
@@ -56,17 +80,103 @@ describe('ListLockersService', () => {
     ]);
   });
 
-  it('passes the station filter through to the repository', async () => {
-    let received: ListLockersFilter | undefined;
-    const repo = {
-      listWithOccupancy: async (filter?: ListLockersFilter) => {
-        received = filter;
-        return [];
+  it('wraps the rows in the page envelope, reporting the total behind it', async () => {
+    const rows: LockerOccupancy[] = [
+      { locker: locker('A-01', 'SMALL'), activePackageId: null, station },
+    ];
+    const { repo } = spyRepo({ rows, total: 412 });
+
+    const page = await new ListLockersService(repo).listLockers({
+      limit: 1,
+      offset: 40,
+    });
+
+    expect(page).toEqual({
+      items: [expect.objectContaining({ code: 'A-01' })],
+      total: 412,
+      limit: 1,
+      offset: 40,
+    });
+  });
+
+  it('defaults the window and the sort when the query asks for neither', async () => {
+    const { repo, received } = spyRepo();
+
+    await new ListLockersService(repo).listLockers();
+
+    expect(received()).toEqual({
+      filter: {
+        stationId: undefined,
+        size: undefined,
+        status: undefined,
+        availability: undefined,
+        includeDecommissioned: undefined,
       },
-    } as unknown as LockerRepository;
+      sort: { field: 'size', direction: 'asc' },
+      page: { limit: DEFAULT_PAGE_LIMIT, offset: 0 },
+    });
+  });
 
-    await new ListLockersService(repo).listLockers({ stationId: 'station-9' });
+  // The DTO's @Max(200) only binds callers that came through the HTTP pipe.
+  it('clamps a limit past the ceiling rather than passing it to the repository', async () => {
+    const { repo, received } = spyRepo();
 
-    expect(received).toEqual({ stationId: 'station-9' });
+    await new ListLockersService(repo).listLockers({
+      limit: 100_000,
+      offset: -1,
+    });
+
+    expect(received()?.page).toEqual({ limit: MAX_PAGE_LIMIT, offset: 0 });
+  });
+
+  it('passes the filters through, as domain values', async () => {
+    const { repo, received } = spyRepo();
+
+    await new ListLockersService(repo).listLockers({
+      stationId: 'station-9',
+      size: 'MEDIUM',
+      status: 'OUT_OF_SERVICE',
+      availability: 'FREE',
+      includeDecommissioned: true,
+    });
+
+    expect(received()?.filter).toEqual({
+      stationId: 'station-9',
+      size: LockerSize.of('MEDIUM'),
+      status: 'OUT_OF_SERVICE',
+      availability: 'FREE',
+      includeDecommissioned: true,
+    });
+  });
+
+  it('passes the requested sort through', async () => {
+    const { repo, received } = spyRepo();
+
+    await new ListLockersService(repo).listLockers({
+      sortBy: 'station',
+      sortDir: 'desc',
+    });
+
+    expect(received()?.sort).toEqual({ field: 'station', direction: 'desc' });
+  });
+
+  it('re-checks a size the DTO only claims to have narrowed', async () => {
+    const { repo } = spyRepo();
+
+    await expect(
+      new ListLockersService(repo).listLockers({
+        size: 'HUGE',
+      } as unknown as ListLockersQueryDto),
+    ).rejects.toThrow(InvalidLockerSizeError);
+  });
+
+  it('refuses a sort field that never went through the pipe', async () => {
+    const { repo } = spyRepo();
+
+    await expect(
+      new ListLockersService(repo).listLockers({
+        sortBy: 'l.code; DROP TABLE locker',
+      } as unknown as ListLockersQueryDto),
+    ).rejects.toThrow(InvalidLockerSortError);
   });
 });

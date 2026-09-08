@@ -10,20 +10,53 @@ import { StationNotFoundError } from '../../stations/domain/errors.js';
 import { LockerCodeTakenError } from '../domain/errors.js';
 import { Locker } from '../domain/locker.entity.js';
 import { LockerSize } from '../domain/locker-size.js';
+import type { LockerSort, LockerSortField } from '../domain/locker-sort.js';
 import type {
-  ListLockersFilter,
+  ListLockersQuery,
   LockerOccupancy,
+  LockerOccupancyPage,
   LockerRepository,
 } from '../domain/locker.repository.js';
 
-const OCCUPANCY_SELECT = `
+const OCCUPANCY_COLUMNS = `
   l.id, l.station_id, l.code, l.size_code, l.status,
   l.created_at, l.updated_at,
   la.package_id AS active_package_id,
-  st.name AS station_name, st.location AS station_location
+  st.name AS station_name, st.location AS station_location`;
+
+// `uq_one_active_assignment_per_locker` makes the LEFT JOIN 1:0..1, so this
+// neither multiplies rows nor inflates COUNT(*).
+const OCCUPANCY_FROM = `
   FROM locker l
   JOIN locker_station st ON st.id = l.station_id
   LEFT JOIN locker_assignment la ON la.active_locker_id = l.id`;
+
+const LIST_WHERE = `
+  WHERE (:stationId IS NULL OR l.station_id = :stationId)
+    AND (:sizeCode IS NULL OR l.size_code = :sizeCode)
+    AND (:status IS NULL OR l.status = :status)
+    AND (:availability IS NULL
+         OR (:availability = 'FREE' AND la.package_id IS NULL)
+         OR (:availability = 'OCCUPIED' AND la.package_id IS NOT NULL))
+    -- Retired lockers stay hidden unless the flag asks for them, or a status
+    -- filter names one explicitly: a caller asking for DECOMMISSIONED would
+    -- otherwise have them filtered straight back out and always get nothing.
+    -- (No literal "question mark" in this SQL, comments included: mysql2 binds
+    --  it as a positional placeholder and every named value after it shifts.)
+    AND (:includeDecommissioned OR :status IS NOT NULL
+         OR l.status <> 'DECOMMISSIONED')`;
+
+/** Sortable field -> the expression it orders by. Keyed by a closed union, so
+ *  nothing a client sends can reach the `ORDER BY` as text. */
+const SORT_EXPRESSIONS: Record<LockerSortField, string> = {
+  code: 'l.code',
+  size: sizeOrderExpr('l.size_code'),
+  status: 'l.status',
+  // 0 before 1 ascending, i.e. FREE before OCCUPIED.
+  availability: 'la.package_id IS NOT NULL',
+  station: 'st.name',
+  createdAt: 'l.created_at',
+};
 
 @Injectable()
 export class MysqlLockerRepository implements LockerRepository {
@@ -91,7 +124,7 @@ export class MysqlLockerRepository implements LockerRepository {
 
   async findByIdWithOccupancy(id: string): Promise<LockerOccupancy | null> {
     const [rows] = await this.pool.query<RowDataPacket[]>(
-      `SELECT ${OCCUPANCY_SELECT} WHERE l.id = :id LIMIT 1`,
+      `SELECT ${OCCUPANCY_COLUMNS} ${OCCUPANCY_FROM} WHERE l.id = :id LIMIT 1`,
       { id },
     );
     return rows.length ? this.toOccupancy(rows[0]) : null;
@@ -108,20 +141,36 @@ export class MysqlLockerRepository implements LockerRepository {
     return rows.length > 0;
   }
 
-  async listWithOccupancy(
-    filter: ListLockersFilter = {},
-  ): Promise<LockerOccupancy[]> {
-    const [rows] = await this.pool.query<RowDataPacket[]>(
-      `SELECT ${OCCUPANCY_SELECT}
-       WHERE (:stationId IS NULL OR l.station_id = :stationId)
-         AND (:includeDecommissioned OR l.status <> 'DECOMMISSIONED')
-       ORDER BY ${sizeOrderExpr('l.size_code')} ASC, l.code ASC`,
-      {
-        stationId: filter.stationId ?? null,
-        includeDecommissioned: filter.includeDecommissioned ?? false,
-      },
-    );
-    return rows.map((row) => this.toOccupancy(row));
+  async listWithOccupancy({
+    filter,
+    sort,
+    page,
+  }: ListLockersQuery): Promise<LockerOccupancyPage> {
+    const params = {
+      stationId: filter.stationId ?? null,
+      sizeCode: filter.size?.code ?? null,
+      status: filter.status ?? null,
+      availability: filter.availability ?? null,
+      includeDecommissioned: filter.includeDecommissioned ?? false,
+    };
+
+    const [[counted], [rows]] = await Promise.all([
+      this.pool.query<RowDataPacket[]>(
+        `SELECT COUNT(*) AS total ${OCCUPANCY_FROM} ${LIST_WHERE}`,
+        params,
+      ),
+      this.pool.query<RowDataPacket[]>(
+        `SELECT ${OCCUPANCY_COLUMNS} ${OCCUPANCY_FROM} ${LIST_WHERE}
+         ORDER BY ${orderBy(sort)}
+         LIMIT :limit OFFSET :offset`,
+        { ...params, limit: page.limit, offset: page.offset },
+      ),
+    ]);
+
+    return {
+      rows: rows.map((row) => this.toOccupancy(row)),
+      total: Number(counted[0].total),
+    };
   }
 
   private toOccupancy(row: RowDataPacket): LockerOccupancy {
@@ -147,4 +196,18 @@ export class MysqlLockerRepository implements LockerRepository {
       updatedAt: row.updated_at as Date,
     });
   }
+}
+
+/**
+ * The chosen column, then tiebreakers that make the order *total*. Without them
+ * paging is unsound: `code` is unique per station only, so rows tying on the
+ * sort column may come back in a different order per query and a row then
+ * repeats on one page and vanishes from the next.
+ */
+function orderBy(sort: LockerSort): string {
+  const direction = sort.direction === 'desc' ? 'DESC' : 'ASC';
+  const columns = [`${SORT_EXPRESSIONS[sort.field]} ${direction}`];
+  if (sort.field !== 'code') columns.push('l.code ASC');
+  columns.push('l.id ASC');
+  return columns.join(', ');
 }

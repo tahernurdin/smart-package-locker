@@ -1,3 +1,4 @@
+import type { LockerAvailability } from '../domain/locker-availability.js';
 import type { LockerSizeCode } from '../domain/locker-size.js';
 import type { LockerStatus } from '../domain/locker-status.js';
 import type { Locker } from '../domain/locker.entity.js';
@@ -12,7 +13,7 @@ export interface LockerView {
   code: string;
   size: LockerSizeCode;
   status: LockerStatus;
-  availability: 'FREE' | 'OCCUPIED';
+  availability: LockerAvailability;
   activePackageId: string | null;
   stationId: string;
   stationName: string;
