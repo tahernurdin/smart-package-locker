@@ -4,9 +4,10 @@ A REST service where delivery **agents** store packages in size-appropriate lock
 **customers** retrieve them with a pickup code. **Operators** manage the stations, the lockers and
 the prices.
 
-Built with NestJS + MySQL in a layered/clean architecture. [`CLAUDE.md`](CLAUDE.md) holds the
-engineering conventions, [Design decisions](#design-decisions) below covers the technical choices,
-and [`api.http`](api.http) is a ready-to-run request collection for the whole API.
+Built with NestJS + MySQL. [Architecture](#architecture) covers how it is put together and
+[Design decisions](#design-decisions) why, [`api.http`](api.http) is a ready-to-run request
+collection for the whole API, and [`CLAUDE.md`](CLAUDE.md) is the same conventions written as rules
+for contributors and coding agents.
 
 ## Status
 
@@ -499,6 +500,84 @@ npx vitest run -t "assigns the smallest locker that fits"
 npx vitest run --config ./vitest.config.e2e.ts test/level2.e2e-spec.ts
 ```
 
+## Architecture
+
+Layered, feature-sliced, with dependencies pointing **inward**: HTTP → application → domain.
+Infrastructure depends on the domain and never the reverse, so the rules of the business sit in
+plain TypeScript that imports nothing from Nest, MySQL or Redis.
+
+```
+src/
+  shared/         config, database (pool + migrator + transaction), redis, clock,
+                  id, pickup-code, pagination, errors, auth
+  dev-token/      POST /auth/dev-token + the CLI behind `npm run token`
+  health/         liveness + readiness probes
+  stations/       domain / application / infrastructure / interface  (+ module)
+  lockers/        domain / application / infrastructure / interface  (+ module)
+  packages/       domain / application / infrastructure / interface  (+ module)
+  storage-rates/  domain / application / infrastructure / interface  (+ module)
+migrations/       001 schema · 002 seed · 003 rate versions · 004 listing indexes
+                  · 005 locker size rank — applied in order, tracked in schema_migrations
+test/             *.e2e-spec.ts against a real MySQL (and Redis, for the limiter)
+api.http          the whole API as runnable requests
+```
+
+Each feature slice holds the same four layers:
+
+- **`domain/`** — entities, value objects, domain errors, and the repository interfaces (ports) the
+  application depends on. No `@Injectable()`, no `@nestjs/*`, no SQL. Entities enforce their own
+  invariants and are immutable: `Package.retrieve()` throws `PackageAlreadyRetrievedError` rather
+  than returning an object in a state that shouldn't exist, and every transition returns a new
+  instance.
+- **`application/`** — one use case per service method (`store`, `retrieve`, `reissue`), orchestrating
+  domain objects and ports. No `Request`/`Response`, no SQL, no framework concerns.
+- **`infrastructure/`** — the adapters: `mysql2` repositories, the Redis limiters, the fee policy.
+- **`interface/`** — controllers and DTOs. Thin by construction: validate into a DTO, call one
+  service method, return. `PackagesController.retrieve` is three lines and contains no `try/catch`,
+  because a thrown domain error is the error path.
+
+**Depend on abstractions.** Application services inject interfaces declared in `domain/`, bound to
+implementations by token in the feature module — the only place a concrete class is named:
+
+```ts
+{ provide: LOCKER_REPOSITORY, useClass: MysqlLockerRepository },
+{ provide: PICKUP_ATTEMPT_LIMITER, useClass: RedisPickupAttemptLimiter },
+```
+
+Moving the attempt counter off Redis, or the fee policy onto a different rate source, is a one-line
+change in a module and a new file under `infrastructure/`. Nothing above it moves.
+
+**The module graph is acyclic** — `packages → lockers → stations` — which is why `countLiveLockers`,
+the guard on retiring a station, sits on `StationRepository` rather than `LockerRepository`: only
+the MySQL adapter knows it reads the `locker` table, and the port stays a plain question about a
+station.
+
+**Determinism is a design constraint, not a testing trick.** Nothing in `domain/` or `application/`
+calls `new Date()` or a raw RNG: the clock, id generation and pickup-code generation are ports, so
+a seven-day storage fee is asserted by handing a service two dates instead of waiting a week, and a
+generated code is fixed in a test without stubbing a module.
+
+**Errors are typed and translated once.** Domain and application code throws `DomainError`
+subclasses carrying a `kind` (`not_found`, `conflict`, `validation`, `forbidden`, `rate_limited`)
+and a stable `code`; a single exception filter maps `kind` to a status at the HTTP edge. No service
+constructs an `HttpException`, so the same service called from a queue consumer or a CLI would
+behave identically.
+
+**Validation happens twice, on purpose.** DTOs check shape and format at the controller boundary;
+the domain re-checks the invariant regardless. `CreateLockerDto.size` is typed `LockerSizeCode`, and
+`LockerSize.of(...)` still throws — because a DTO's type is a promise about one caller, not a
+business guarantee.
+
+**One deliberate exception to the layering:** an application service takes its feature's request DTO
+as an input type (`import type`, so nothing survives compilation) rather than restating every
+request shape as a second, identical interface. Types are erased, so no framework or HTTP code
+actually reaches the application layer; the exception is types only, and `domain/` still imports
+from nothing above it.
+
+[`CLAUDE.md`](CLAUDE.md) restates these as working rules for anyone (or anything) adding code —
+along with the environment's sharp edges: it is ESM, so every relative import carries a `.js`
+extension; tests are Vitest, not Jest; the linter is oxlint, not ESLint.
+
 ## Design decisions
 
 | Area | Choice | Why |
@@ -580,31 +659,3 @@ The brief ships a PostgreSQL reference model; `migrations/001_init.sql` is its M
   joined table cannot be served by an index on `locker`. `size_code` carries a `CHECK`, and the
   generated `size_rank` column carries `LockerSize.rank` for the allocation index
   (`migrations/005_locker_size_rank.sql` has the measurement).
-
-## Layout
-
-```
-src/
-  shared/         config, database (pool + migrator + transaction), redis, clock,
-                  id, pickup-code, pagination, errors, auth
-  dev-token/      POST /auth/dev-token + the CLI behind `npm run token`
-  health/         liveness + readiness probes
-  stations/       domain / application / infrastructure / interface  (+ module)
-  lockers/        domain / application / infrastructure / interface  (+ module)
-  packages/       domain / application / infrastructure / interface  (+ module)
-  storage-rates/  domain / application / infrastructure / interface  (+ module)
-migrations/       001 schema · 002 seed · 003 rate versions · 004 listing indexes
-                  · 005 locker size rank — applied in order, tracked in schema_migrations
-test/             *.e2e-spec.ts against a real MySQL (and Redis, for the limiter)
-api.http          the whole API as runnable requests
-```
-
-Dependencies point inward: HTTP → application → domain; infrastructure implements domain ports and
-is bound to them in each feature module by token. The module graph is acyclic —
-`packages → lockers → stations` — which is why `countLiveLockers`, the guard on retiring a station,
-sits on `StationRepository` rather than `LockerRepository`: only the MySQL adapter knows it reads
-the `locker` table, and the port stays a plain question about a station.
-
-One deliberate exception to the layering: application services take the request DTO as their input
-type (`import type`, so nothing survives compilation) rather than restating every request shape as a
-second, identical interface — see [`CLAUDE.md`](CLAUDE.md).
