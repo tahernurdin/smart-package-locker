@@ -216,9 +216,17 @@ npm run start:dev
 npm run test                  # unit tests (no DB)
 npm run lint
 docker compose up -d mysql    # e2e needs a MySQL
-npm run test:e2e              # Level 1–3 flows (L3 fakes the clock to age a package)
-                              # + station/locker management (test/locker-management.e2e-spec.ts)
+npm run test:e2e              # every test/*.e2e-spec.ts
 ```
+
+E2E covers the Level 1–3 flows (L3 fakes the clock to age a package), station/locker management,
+storage-rate management, both package listings, and the health probes — against a real MySQL, no
+mocks. Suites run serially and clear their tables between tests, keeping the rows seeded by
+`migrations/002_seed.sql`.
+
+They run against **their own database** (`locker_test`, set by the checked-in `.env.test`), never
+the one you develop against. `test/global-setup.ts` creates it on first run; each suite applies the
+migrations. To point e2e elsewhere, set `DATABASE_URL` in the shell — it wins over both env files.
 
 Run one test file or case:
 
