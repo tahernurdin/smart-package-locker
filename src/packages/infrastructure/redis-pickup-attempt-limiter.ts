@@ -10,35 +10,11 @@ import type {
 } from '../domain/pickup-attempt-limiter.js';
 
 /**
- * Returns 0 while the caller may attempt, else the milliseconds left on the
- * block. Reading the count and its TTL in one script keeps them consistent and
- * costs one round trip.
+ * The counting itself is two Lua scripts registered on the client — see
+ * `shared/redis/attempt-counter.scripts.ts` for why each is a script and not a
+ * pair of commands. What lives here is the policy: which key a caller counts
+ * against, and what the counts mean.
  */
-const READ_BLOCK = `
-local attempts = tonumber(redis.call('GET', KEYS[1]) or '0')
-if attempts < tonumber(ARGV[1]) then return 0 end
-local ttl = redis.call('PTTL', KEYS[1])
-if ttl <= 0 then return 0 end
-return ttl`;
-
-/**
- * Counts a failure and (re)sets the expiry.
- *
- * The expiry is refreshed on *every* counted failure, which is what makes the
- * block last the configured time rather than whatever remained of a window
- * opened by the first attempt. Blocked attempts never reach here — they are
- * rejected before any counting — so the key is not kept alive by the requests
- * it is rejecting, and it expires exactly one lockout after the last failure
- * that earned it.
- *
- * INCR and PEXPIRE together, because an INCR whose PEXPIRE is lost to a dropped
- * connection leaves a key that never expires: a permanent lockout.
- */
-const COUNT_FAILURE = `
-redis.call('INCR', KEYS[1])
-redis.call('PEXPIRE', KEYS[1], ARGV[1])
-return 1`;
-
 @Injectable()
 export class RedisPickupAttemptLimiter implements PickupAttemptLimiter {
   private readonly logger = new Logger(RedisPickupAttemptLimiter.name);
@@ -53,22 +29,22 @@ export class RedisPickupAttemptLimiter implements PickupAttemptLimiter {
     lockerId: string,
   ): Promise<PickupAttemptBlock | null> {
     const remainingMs = await this.run('check', () =>
-      this.redis.eval(READ_BLOCK, {
-        keys: [this.key(customerId, lockerId)],
-        arguments: [String(this.config.retrievalLimit.maxAttempts)],
-      }),
+      this.redis.readAttemptBlock(
+        this.key(customerId, lockerId),
+        this.config.retrievalLimit.maxAttempts,
+      ),
     );
-    const ms = Number(remainingMs ?? 0);
-    if (!ms || ms <= 0) return null;
+    const ms = remainingMs ?? 0;
+    if (ms <= 0) return null;
     return { retryAfterSeconds: Math.ceil(ms / 1000) };
   }
 
   async recordFailure(customerId: string, lockerId: string): Promise<void> {
     await this.run('recordFailure', () =>
-      this.redis.eval(COUNT_FAILURE, {
-        keys: [this.key(customerId, lockerId)],
-        arguments: [String(this.config.retrievalLimit.lockoutSeconds * 1000)],
-      }),
+      this.redis.countAttemptFailure(
+        this.key(customerId, lockerId),
+        this.config.retrievalLimit.lockoutSeconds * 1000,
+      ),
     );
   }
 

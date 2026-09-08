@@ -423,6 +423,50 @@ npx vitest run -t "assigns the smallest locker that fits"
 | Money | `BIGINT` minor units in one configured currency (`CURRENCY`, default `AUD`) | No floating-point money |
 | Roles | `OPERATOR`, `AGENT`, `CUSTOMER` | Per the brief |
 
+### Trade-offs
+
+Two choices here cost something real, and both could reasonably have gone the other way.
+
+**No ORM.** Repositories are `mysql2` and hand-written SQL, with a private `toPackage(row)` doing
+the mapping. The price is paid on every read: a row-to-entity mapper per aggregate, kept in step
+with the schema by hand, with nothing checking the SQL until it runs. A TypeORM or Prisma layer
+would delete that mapping code and generate the migrations.
+
+It buys two things this particular service needs. The first is that the layering rule holds
+literally rather than by convention — `domain/` imports from nothing, so there is no `@Entity()`, no
+`@Column()`, no lazy-loading proxy reaching into an aggregate that is supposed to enforce its own
+invariants. The second is that the interesting queries stay visible. The core of this app is a
+`SELECT ... FOR UPDATE SKIP LOCKED` that picks the smallest free locker, a `UNIQUE` over a generated
+column, and a rate lookup written to be answered by one index. None of those is something an ORM
+expresses well; you end up dropping to raw SQL for exactly the parts that matter, and then you are
+maintaining both. The calculus flips with breadth: a large CRUD surface of shallow entities is where
+the generated mapping earns back its cost, and this is a narrow domain with a few sharp queries.
+
+**Lua for the attempt counter.** Five wrong pickup codes at one locker turn that customer away from
+it for fifteen minutes, counted in Redis against a `{ customer, locker }` key and cleared on a
+successful retrieval. `shared/redis/attempt-counter.scripts.ts` holds that as two Lua scripts,
+registered with `defineScript` so they go out as `EVALSHA`. This is Redis-side Lua, not a JS `eval`
+— keys and arguments travel as separate protocol arguments and nothing is compiled in-process — but
+it is still a second language in the repo, exercisable only against a real Redis (hence
+`test/pickup-attempt-limiter.e2e-spec.ts` rather than a unit spec), and `defineScript`'s reply
+typing needs a cast to describe a plain integer.
+
+Lua earns that when a script branches on a value it just read and writes differently as a result.
+Neither of these does: one is two unconditional commands, and the other reads `GET` and `PTTL` and
+then does arithmetic that could as easily happen in TypeScript. A `MULTI`/`EXEC` gives the same
+atomicity — a transaction whose `EXEC` never arrives is discarded, which is the dropped-connection
+case the scripts exist to prevent — in the same single round trip, with no Lua at all. That is the
+simplification to make if this file is ever touched again.
+
+The third option, a library, was considered and rejected on shape rather than on principle.
+`@nestjs/throttler` is a guard: it counts requests before the handler runs, so it cannot tell a
+wrong pickup code from an unknown locker and has no way to clear the counter on success — and those
+two distinctions are the entire point of this limiter. Counting an unknown locker or someone else's
+parcel would let a mistyped id spend an honest customer's budget, and not clearing on success would
+punish a customer for four bad guesses they already recovered from.
+`rate-limiter-flexible` is the right shape, with `blockDuration`
+matching the policy exactly, and would be the choice if the counting logic grew beyond one key.
+
 ### Adapting the reference schema
 
 The brief ships a PostgreSQL reference model; `migrations/001_init.sql` is its MySQL port.

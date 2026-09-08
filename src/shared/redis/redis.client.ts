@@ -1,8 +1,7 @@
 import { createClient } from 'redis';
+import { ATTEMPT_COUNTER_SCRIPTS } from './attempt-counter.scripts.js';
 
 export const REDIS_CLIENT = Symbol('REDIS_CLIENT');
-
-export type RedisClient = ReturnType<typeof createClient>;
 
 /**
  * The one Redis client for the app. Everything it currently backs (the pickup
@@ -15,10 +14,14 @@ export type RedisClient = ReturnType<typeof createClient>;
  *   fail-open design exists to avoid.
  * - `reconnectStrategy` backs off but never gives up, so the limiter comes back
  *   on its own once Redis does.
+ *
+ * Lua scripts are registered here because node-redis only accepts them at
+ * construction; each one becomes a typed method on the returned client.
  */
-export function createRedisClient(url: string): RedisClient {
+export function createRedisClient(url: string) {
   return createClient({
     url,
+    scripts: ATTEMPT_COUNTER_SCRIPTS,
     disableOfflineQueue: true,
     socket: {
       connectTimeout: 2_000,
@@ -26,3 +29,6 @@ export function createRedisClient(url: string): RedisClient {
     },
   });
 }
+
+/** Inferred from the factory, so it carries the registered scripts' methods. */
+export type RedisClient = ReturnType<typeof createRedisClient>;
