@@ -1,14 +1,4 @@
-/**
- * A misconfigured rate table (bad band, gap, missing size) is an operational
- * bug, not a client error — thrown as a plain error so the filter maps it to 500
- * without leaking details.
- */
-export class StorageRateConfigError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'StorageRateConfigError';
-  }
-}
+import { InvalidStorageRateBandError } from './errors.js';
 
 /**
  * One half-open `[fromDay, toDay)` per-day rate band. `toDay === null` is the
@@ -28,17 +18,17 @@ export class StorageRateBand {
   }): StorageRateBand {
     const { fromDay, toDay, rateMinor } = params;
     if (!Number.isInteger(fromDay) || fromDay < 0) {
-      throw new StorageRateConfigError(
+      throw new InvalidStorageRateBandError(
         `rate band fromDay must be a non-negative integer, got ${fromDay}`,
       );
     }
     if (toDay !== null && (!Number.isInteger(toDay) || toDay <= fromDay)) {
-      throw new StorageRateConfigError(
+      throw new InvalidStorageRateBandError(
         `rate band toDay must be an integer greater than fromDay (${fromDay}), got ${toDay}`,
       );
     }
     if (!Number.isInteger(rateMinor) || rateMinor < 0) {
-      throw new StorageRateConfigError(
+      throw new InvalidStorageRateBandError(
         `rate band rateMinor must be a non-negative integer, got ${rateMinor}`,
       );
     }

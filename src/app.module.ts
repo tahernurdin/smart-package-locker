@@ -8,6 +8,7 @@ import { HealthModule } from './health/health.module.js';
 import { LockersModule } from './lockers/lockers.module.js';
 import { PackagesModule } from './packages/packages.module.js';
 import { StationsModule } from './stations/stations.module.js';
+import { StorageRatesModule } from './storage-rates/storage-rates.module.js';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { StationsModule } from './stations/stations.module.js';
     HealthModule,
     StationsModule,
     LockersModule,
+    StorageRatesModule,
     PackagesModule,
   ],
 })

@@ -1,6 +1,6 @@
 import type { Pool } from 'mysql2/promise';
 import { LockerSize } from '../src/lockers/domain/locker-size.js';
-import { MysqlStorageRateRepository } from '../src/packages/infrastructure/mysql-storage-rate.repository.js';
+import { MysqlStorageRateRepository } from '../src/storage-rates/infrastructure/mysql-storage-rate.repository.js';
 import { loadConfiguration } from '../src/shared/config/configuration.js';
 import { runMigrations } from '../src/shared/database/migrator.js';
 import { createMysqlPool } from '../src/shared/database/mysql.pool.js';
@@ -22,9 +22,7 @@ describe('MysqlStorageRateRepository (e2e)', () => {
 
   it('returns the seeded SMALL bands in fromDay order', async () => {
     const bands = await repo.findBandsFor(LockerSize.of('SMALL'), new Date());
-    expect(
-      bands.map((b) => [b.fromDay, b.toDay, b.rateMinor]),
-    ).toEqual([
+    expect(bands.map((b) => [b.fromDay, b.toDay, b.rateMinor])).toEqual([
       [0, 1, 0],
       [1, 3, 600],
       [3, 6, 800],

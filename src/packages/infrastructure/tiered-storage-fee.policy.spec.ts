@@ -1,6 +1,6 @@
 import { LockerSize } from '../../lockers/domain/locker-size.js';
-import { StorageRateBand } from '../domain/storage-rate.js';
-import type { StorageRateRepository } from '../domain/storage-rate.repository.js';
+import { StorageRateBand } from '../../storage-rates/domain/storage-rate.js';
+import type { StorageRateRepository } from '../../storage-rates/domain/storage-rate.repository.js';
 import { TieredStorageFeePolicy } from './tiered-storage-fee.policy.js';
 
 const SMALL_BANDS = [

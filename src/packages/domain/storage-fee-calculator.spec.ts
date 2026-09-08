@@ -1,14 +1,13 @@
 import { calculateStorageFeeMinor } from './storage-fee-calculator.js';
-import { StorageRateBand, StorageRateConfigError } from './storage-rate.js';
+import { StorageRateConfigError } from '../../storage-rates/domain/errors.js';
+import { StorageRateBand } from '../../storage-rates/domain/storage-rate.js';
 
 const HOURS = 3_600_000;
 const DAYS = 86_400_000;
 const T0 = new Date('2026-06-01T12:00:00.000Z');
 const after = (ms: number) => new Date(T0.getTime() + ms);
 
-const bands = (
-  spec: [number, number | null, number][],
-): StorageRateBand[] =>
+const bands = (spec: [number, number | null, number][]): StorageRateBand[] =>
   spec.map(([fromDay, toDay, rateMinor]) =>
     StorageRateBand.of({ fromDay, toDay, rateMinor }),
   );
@@ -40,7 +39,9 @@ describe('calculateStorageFeeMinor', () => {
     ['7 days', 7 * DAYS, 4600],
     ['30 days (open-ended tail)', 30 * DAYS, 27_600],
   ])('SMALL, %s -> %d', (_label, durationMs, expected) => {
-    expect(calculateStorageFeeMinor(SMALL, T0, after(durationMs))).toBe(expected);
+    expect(calculateStorageFeeMinor(SMALL, T0, after(durationMs))).toBe(
+      expected,
+    );
   });
 
   it('applies a different size band table', () => {

@@ -5,11 +5,13 @@
 # create resources are named (# @name ...) so later blocks can reuse
 # their responses.
 #
-# Status: health, auth, stations, lockers, register, store, and retrieve are all
-# implemented (Levels 1–3). The storage fee in the retrieve response is real
-# now — it's 0 only because a static request file picks up the package the same
-# day; the tiered per-day rates are exercised in test/level3.e2e-spec.ts (which
-# fakes the clock).
+# Status: health, auth, stations, lockers, storage rates, register, store, and
+# retrieve are all implemented (Levels 1–3). The storage fee in the retrieve
+# response is real now — it's 0 only because a static request file picks up the
+# package the same day; the tiered per-day rates are exercised in
+# test/level3.e2e-spec.ts (which fakes the clock). The rates themselves are
+# operator-managed under /storage-rates; migrations/002_seed.sql just ships a
+# first version so a fresh deployment can price a stay.
 #
 # Suggested order: mint tokens → create a station → create lockers → list →
 # register → store → retrieve.
@@ -151,6 +153,10 @@ Authorization: Bearer {{operator}}
 GET {{baseUrl}}/lockers?includeDecommissioned=true
 Authorization: Bearer {{operator}}
 
+### List only the lockers at one station
+GET {{baseUrl}}/lockers?stationId={{seededStation}}
+Authorization: Bearer {{operator}}
+
 ### Locker id captured from the create response above
 @lockerToManage = {{createSmallLocker.response.body.id}}
 
@@ -203,6 +209,90 @@ Content-Type: application/json
 
 ### Negative: list lockers with no token → 401
 GET {{baseUrl}}/lockers
+
+###############################################################################
+# Storage rates (role: OPERATOR)
+#
+# Publish-only: a price change is a NEW version of one size's bands at a future
+# effectiveFrom, never an edit — there is no PATCH or DELETE here. The fee is
+# recomputed at retrieval from the version effective when the package was
+# stored, so editing a published version would rewrite what a customer was
+# already charged.
+#
+# Bands must tile [0, ∞): start at day 0, meet exactly at their edges, and end
+# open-ended (toDay null). MySQL can't express that, so the domain enforces it.
+###############################################################################
+
+### List every version, newest first (superseded ones included)
+GET {{baseUrl}}/storage-rates
+Authorization: Bearer {{operator}}
+
+### List one size's history
+GET {{baseUrl}}/storage-rates?sizeCode=SMALL
+Authorization: Bearer {{operator}}
+
+### Publish next quarter's SMALL prices — first two days free, then 7.50/day
+### (edit effectiveFrom to a future date before sending)
+POST {{baseUrl}}/storage-rates
+Authorization: Bearer {{operator}}
+Content-Type: application/json
+
+{
+  "sizeCode": "SMALL",
+  "effectiveFrom": "2031-03-01T00:00:00.000Z",
+  "bands": [
+    { "fromDay": 0, "toDay": 2, "rateMinor": 0 },
+    { "fromDay": 2, "toDay": null, "rateMinor": 750 }
+  ]
+}
+
+### Negative: backdating → 422 storage_rate_backdated
+POST {{baseUrl}}/storage-rates
+Authorization: Bearer {{operator}}
+Content-Type: application/json
+
+{
+  "sizeCode": "SMALL",
+  "effectiveFrom": "2020-01-01T00:00:00.000Z",
+  "bands": [{ "fromDay": 0, "toDay": null, "rateMinor": 500 }]
+}
+
+### Negative: day 2 priced by no band → 422 invalid_storage_rate_schedule
+POST {{baseUrl}}/storage-rates
+Authorization: Bearer {{operator}}
+Content-Type: application/json
+
+{
+  "sizeCode": "MEDIUM",
+  "effectiveFrom": "2031-03-01T00:00:00.000Z",
+  "bands": [
+    { "fromDay": 0, "toDay": 2, "rateMinor": 0 },
+    { "fromDay": 3, "toDay": null, "rateMinor": 900 }
+  ]
+}
+
+### Negative: re-publishing the same size + instant → 409 storage_rate_version_exists
+### (send the publish above twice)
+POST {{baseUrl}}/storage-rates
+Authorization: Bearer {{operator}}
+Content-Type: application/json
+
+{
+  "sizeCode": "SMALL",
+  "effectiveFrom": "2031-03-01T00:00:00.000Z",
+  "bands": [{ "fromDay": 0, "toDay": null, "rateMinor": 100 }]
+}
+
+### Negative: publish as AGENT → 403
+POST {{baseUrl}}/storage-rates
+Authorization: Bearer {{agent}}
+Content-Type: application/json
+
+{
+  "sizeCode": "SMALL",
+  "effectiveFrom": "2031-06-01T00:00:00.000Z",
+  "bands": [{ "fromDay": 0, "toDay": null, "rateMinor": 100 }]
+}
 
 ###############################################################################
 # Packages — register + store (role: AGENT)

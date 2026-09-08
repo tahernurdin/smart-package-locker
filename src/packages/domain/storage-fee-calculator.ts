@@ -1,4 +1,5 @@
-import { StorageRateConfigError, type StorageRateBand } from './storage-rate.js';
+import { StorageRateConfigError } from '../../storage-rates/domain/errors.js';
+import type { StorageRateBand } from '../../storage-rates/domain/storage-rate.js';
 
 const DAY_MS = 86_400_000;
 

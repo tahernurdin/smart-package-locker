@@ -4,11 +4,11 @@ import type {
   StorageFeePolicy,
 } from '../domain/storage-fee.policy.js';
 import { calculateStorageFeeMinor } from '../domain/storage-fee-calculator.js';
-import { StorageRateConfigError } from '../domain/storage-rate.js';
+import { StorageRateConfigError } from '../../storage-rates/domain/errors.js';
 import {
   STORAGE_RATE_REPOSITORY,
   type StorageRateRepository,
-} from '../domain/storage-rate.repository.js';
+} from '../../storage-rates/domain/storage-rate.repository.js';
 
 /**
  * Tiered per-day storage fee. Fetches the rate bands effective when the package
