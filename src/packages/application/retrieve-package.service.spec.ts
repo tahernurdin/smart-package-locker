@@ -16,7 +16,9 @@ import { RetrievePackageService } from './retrieve-package.service.js';
 
 const CODE = '482913';
 const CUSTOMER = 'c-1';
-const hasher = new PickupCodeHasher({ pickupCodePepper: '' } as AppConfiguration);
+const hasher = new PickupCodeHasher({
+  pickupCodePepper: 'test-pepper',
+} as AppConfiguration);
 const config = { currency: 'AUD' } as AppConfiguration;
 
 function theLocker() {
@@ -38,7 +40,7 @@ function activePackage(code = CODE, customerId = CUSTOMER) {
   }).storeInLocker({
     assignmentId: 'a-1',
     lockerId: 'l-1',
-    pickupCodeHash: hasher.hash(code),
+    pickupCodeHash: hasher.hash(code, 'a-1'),
     now: new Date('2026-06-01T00:00:00.000Z'),
   });
 }

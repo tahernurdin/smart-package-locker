@@ -82,14 +82,19 @@ export class StorePackageService {
           stationId,
           requiredSize: pkg.size,
           storedAt: now,
-          build: (lockerId) =>
-            pkg.storeInLocker({
-              assignmentId: this.ids.next(),
+          build: (lockerId) => {
+            // The hash is salted with the assignment it belongs to, so the id
+            // has to exist before the code is hashed. Still one fresh id per
+            // attempt: a lost race discards this whole episode.
+            const assignmentId = this.ids.next();
+            return pkg.storeInLocker({
+              assignmentId,
               lockerId,
-              pickupCodeHash: this.hasher.hash(pickupCode),
+              pickupCodeHash: this.hasher.hash(pickupCode, assignmentId),
               storedByAgent: input.agentId ?? null,
               now,
-            }),
+            });
+          },
         });
 
         if (!reserved) throw new NoSuitableLockerError(pkg.size.code);

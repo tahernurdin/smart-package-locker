@@ -75,7 +75,7 @@ class FakePackageRepo implements PackageRepository {
 }
 
 const hasher = new PickupCodeHasher({
-  pickupCodePepper: '',
+  pickupCodePepper: 'test-pepper',
 } as AppConfiguration);
 const clock: Clock = { now: () => new Date('2026-06-02T00:00:00.000Z') };
 /** The station the agent is at — always explicit, there is no default. */
@@ -232,7 +232,7 @@ describe('StorePackageService', () => {
 
     expect(result.pickupCode).toBe('482913');
     const stored = repo.packages.get('pkg-1')!;
-    expect(stored.pickupCodeHash).toBe(hasher.hash('482913'));
+    expect(stored.pickupCodeHash).toBe(hasher.hash('482913', 'id-1'));
     expect(stored.pickupCodeHash).not.toContain('482913');
     expect(stored.storedAt.toISOString()).toBe('2026-06-02T00:00:00.000Z');
     expect(stored.assignment?.storedByAgent).toBe('agent-9');

@@ -17,7 +17,7 @@ const NEW_CODE = '135790';
 const CUSTOMER = 'c-1';
 const NOW = new Date('2026-06-05T00:00:00.000Z');
 const hasher = new PickupCodeHasher({
-  pickupCodePepper: '',
+  pickupCodePepper: 'test-pepper',
 } as AppConfiguration);
 
 function theLocker() {
@@ -43,7 +43,7 @@ function storedPackage(customerId = CUSTOMER) {
   return registeredPackage(customerId).storeInLocker({
     assignmentId: 'a-1',
     lockerId: 'l-1',
-    pickupCodeHash: hasher.hash(OLD_CODE),
+    pickupCodeHash: hasher.hash(OLD_CODE, 'a-1'),
     now: new Date('2026-06-01T00:00:00.000Z'),
   });
 }
@@ -100,8 +100,8 @@ describe('ReissuePickupCodeService', () => {
     });
     // Stored as a hash of the new code, never the code itself.
     const saved = savePickupCode.mock.calls[0]?.[0];
-    expect(saved?.pickupCodeHash).toBe(hasher.hash(NEW_CODE));
-    expect(saved?.pickupCodeHash).not.toBe(hasher.hash(OLD_CODE));
+    expect(saved?.pickupCodeHash).toBe(hasher.hash(NEW_CODE, 'a-1'));
+    expect(saved?.pickupCodeHash).not.toBe(hasher.hash(OLD_CODE, 'a-1'));
   });
 
   it('leaves the parcel STORED in the same locker', async () => {

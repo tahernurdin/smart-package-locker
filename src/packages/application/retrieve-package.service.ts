@@ -79,7 +79,7 @@ export class RetrievePackageService {
     // the wrong code. That is the guess a limiter can meaningfully cap, and
     // narrowing it here keeps a mistyped locker id, or a return to a door
     // already emptied, from freezing a locker someone's parcel is sitting in.
-    if (!this.hasher.verify(pickupCode, pkg.pickupCodeHash)) {
+    if (!this.hasher.verify(pickupCode, pkg.assignmentId, pkg.pickupCodeHash)) {
       await this.attempts.recordFailure(locker.id);
       throw new PackageNotFoundForRetrievalError();
     }

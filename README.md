@@ -32,8 +32,9 @@ lost their pickup code.
   retrieval is a person at a cabinet: *"the customer provides the locker ID and pickup code"*. So
   `POST /packages/retrieve` is called by the **station**, not by the customer — the token proves
   which locker bank is asking, and the code alone proves the parcel is the caller's. That is why
-  the code is generated per assignment, stored only as a SHA-256 hash, compared in constant time,
-  and capped at five wrong guesses per door. The customer's own token is for the app
+  the code is generated per assignment, stored only as a keyed hash (HMAC-SHA256 under a secret
+  pepper, salted with the assignment id), compared in constant time, and capped at five wrong
+  guesses per door. The customer's own token is for the app
   (`GET /packages/mine`), which shows them where to walk and opens nothing. The cost of counting per
   door rather than per caller is accepted deliberately: someone at a keypad can freeze one locker
   for fifteen minutes. Counting per caller is not available — there is no caller identity — and the
@@ -167,7 +168,7 @@ the customer, and the cabinet is a *door*, authenticated as the station and unlo
 alone.
 
 1. **The parcel arrives.** The agent's drop (`POST /packages/:id/store`) returns the pickup code in
-   plaintext, once, and it is never readable again — only a SHA-256 hash is stored. Getting it to
+   plaintext, once, and it is never readable again — only a keyed hash is stored. Getting it to
    the customer is out of band (SMS, push, email) — the point where that send belongs is marked
    `TODO(notify)` in `StorePackageService`, at the one moment the code exists in plaintext.
 2. **The customer opens the app.** `GET /packages/mine?status=STORED`, with their own token. Whose
@@ -181,7 +182,7 @@ alone.
 4. **They walk to the cabinet and key the code in.** The keypad calls
    `POST /packages/retrieve` with `{ lockerId, pickupCode }` under the **station's** token — the
    person standing there has no session, which is the whole reason a pickup code exists. The code is
-   therefore the only credential: matched against a per-assignment SHA-256 hash in constant time,
+   therefore the only credential: matched against a per-assignment keyed hash in constant time,
    with an unknown locker, an empty one and a wrong code all answering the same
    `404 retrieval_failed`. Five wrong codes at one door close it to everyone for fifteen minutes. On
    success the fee is settled, the locker frees, and the response reports `opened: true`.
@@ -586,7 +587,7 @@ extension; tests are Vitest, not Jest; the linter is oxlint, not ESLint.
 | Schema | Plain `.sql` migrations + a small runner (`npm run db:migrate`, also applied on API boot) | One path for local, Docker and e2e; each file documents the decision it encodes |
 | IDs | App-generated UUID v4 stored as `CHAR(36)`, behind an `IdGenerator` port | Readable across tables, deterministic under test |
 | Time | Every `DATETIME(6)` supplied by the app through a `Clock` port, never a DB default | Fees depend on elapsed time, so tests must be able to age a package |
-| Pickup code | 6 digits, stored as a SHA-256 hash, compared with `crypto.timingSafeEqual`, in plaintext only in the response that issues it | It is the only credential at a keypad, so the stored form must collect nothing if the table leaks |
+| Pickup code | 6 digits, stored as HMAC-SHA256 keyed by `PICKUP_CODE_PEPPER` and salted with the assignment id, compared with `crypto.timingSafeEqual`, in plaintext only in the response that issues it | It is the only credential at a keypad, so the stored form must collect nothing if the table leaks. Six digits is a 10^6 keyspace, so the pepper (required in production, never stored in the DB) is what stops a leaked table being attacked at all, and the per-row salt is what stops one precomputed pass cracking the whole bank |
 | Auth | `@nestjs/jwt` + `JwtAuthGuard` + `RolesGuard` + `@Roles()`; `POST /auth/dev-token` is env-gated | The brief asks for a dummy token per role, not an identity provider |
 | Money | `BIGINT` minor units in one configured currency (`CURRENCY`, default `AUD`) | No floating-point money |
 | Roles | `OPERATOR`, `AGENT`, `CUSTOMER`, plus `STATION` | The brief's three actors, plus the cabinet itself — retrieval is called by hardware, not by a logged-in customer |

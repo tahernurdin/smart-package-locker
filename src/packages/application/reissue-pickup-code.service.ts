@@ -97,7 +97,7 @@ export class ReissuePickupCodeService {
     const pickupCode = this.codes.generate();
     const now = this.clock.now();
     const reissued = pkg.reissuePickupCode({
-      pickupCodeHash: this.hasher.hash(pickupCode),
+      pickupCodeHash: this.hasher.hash(pickupCode, pkg.assignmentId),
       now,
     });
     await this.packages.savePickupCode(reissued);

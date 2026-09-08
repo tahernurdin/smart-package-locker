@@ -75,6 +75,11 @@ export class Package {
     return this.assignment;
   }
 
+  /** The open storage episode's id. Pickup-code hashes are salted with it. */
+  get assignmentId(): string {
+    return this.requireAssignment().id;
+  }
+
   get lockerId(): string {
     return this.requireAssignment().lockerId;
   }
